@@ -1,0 +1,56 @@
+{
+  "name": "@moneymq/x402",
+  "version": "0.1.1",
+  "description": "x402 protocol integration for MoneyMQ",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist .turbo node_modules"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/txtx/moneymq-js.git",
+    "directory": "packages/x402"
+  },
+  "keywords": [
+    "moneymq",
+    "x402",
+    "payments",
+    "micropayments",
+    "stablecoin"
+  ],
+  "author": "MoneyMQ",
+  "license": "MIT",
+  "dependencies": {
+    "x402": "^0.7.1",
+    "x402-fetch": "^0.7.0"
+  },
+  "peerDependencies": {
+    "stripe": "^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "stripe": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "stripe": "^19.2.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5"
+  }
+}
