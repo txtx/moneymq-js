@@ -32,6 +32,7 @@ jobs:
         with:
           node-version: 22.x
           cache: 'pnpm'
+          registry-url: 'https://registry.npmjs.org'
 
       - name: Configure Git
         run: |
@@ -69,12 +70,6 @@ jobs:
             echo "Please run: npm version <patch|minor|major>"
             exit 1
           fi
-
-      - name: Configure npm for Trusted Publishing
-        run: |
-          echo "npm version: $(npm --version)"
-          npm config delete //registry.npmjs.org/:_authToken 2>/dev/null || true
-          npm config set registry https://registry.npmjs.org/
 
       - name: Publish @moneymq/sdk to npm
         if: ${{ !inputs.dry_run }}
