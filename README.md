@@ -224,6 +224,41 @@ pnpm lint
 pnpm format
 ```
 
+## Releasing
+
+Releases are managed via GitHub Actions with npm Trusted Publishing.
+
+### Version Bumping
+
+All packages share the same version. When you bump the root version, all packages are automatically synced:
+
+```bash
+# Bump version (patch, minor, or major)
+npm version patch
+
+# Push the commit and tag
+git push && git push --tags
+```
+
+The `npm version` command automatically:
+1. Updates the root `package.json` version
+2. Runs the sync script to update all packages in `packages/*/package.json`
+3. Creates a git commit and tag
+
+### Publishing to npm
+
+1. After pushing the version bump, go to [GitHub Actions](https://github.com/txtx/moneymq-js/actions/workflows/release.yml)
+2. Click "Run workflow"
+3. Optionally enable "Dry run" to test without publishing
+4. Click "Run workflow" to start the release
+
+The workflow will:
+- Build and test all packages
+- Validate version consistency across packages
+- Create a git tag (if not already created)
+- Publish `@moneymq/sdk` and `@moneymq/x402` to npm with provenance
+- Create a GitHub Release with auto-generated release notes
+
 ## Contributing
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
