@@ -70,12 +70,6 @@ jobs:
             exit 1
           fi
 
-      - name: Create git tag
-        if: ${{ !inputs.dry_run }}
-        run: |
-          git tag "v${{ steps.version.outputs.version }}"
-          git push origin "v${{ steps.version.outputs.version }}"
-
       - name: Configure npm for Trusted Publishing
         run: |
           echo "npm version: $(npm --version)"
@@ -112,8 +106,3 @@ jobs:
           echo "### Would publish:" >> $GITHUB_STEP_SUMMARY
           echo "- @moneymq/sdk@${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "- @moneymq/x402@${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### To release:" >> $GITHUB_STEP_SUMMARY
-          echo "1. Bump version: \`npm version patch\` (auto-syncs to all packages)" >> $GITHUB_STEP_SUMMARY
-          echo "2. Push: \`git push && git push --tags\`" >> $GITHUB_STEP_SUMMARY
-          echo "3. Run this workflow again with dry_run disabled" >> $GITHUB_STEP_SUMMARY
