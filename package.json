@@ -1,6 +1,6 @@
 {
   "name": "moneymq-js",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "MoneyMQ JavaScript SDK for accepting stablecoin payments",
   "repository": {
