@@ -8,7 +8,7 @@ import { CustomWalletModalProvider, type Branding } from './wallet-modal-provide
 // MoneyMQ client interface (matches @moneymq/sdk)
 export interface MoneyMQClient {
   config: {
-    url: string;
+    endpoint: string;
   };
 }
 
@@ -208,7 +208,7 @@ export function MoneyMQProvider({
 
   useEffect(() => {
     async function initialize() {
-      const rpcUrl = await getRpcUrl(client.config.url);
+      const rpcUrl = await getRpcUrl(client.config.endpoint);
       setRpcEndpoint(rpcUrl);
 
       // Check if we're in sandbox mode
@@ -217,12 +217,12 @@ export function MoneyMQProvider({
 
       // If in sandbox mode, fetch sandbox accounts
       if (isSandbox) {
-        const accounts = await fetchSandboxAccounts(client.config.url, rpcUrl);
+        const accounts = await fetchSandboxAccounts(client.config.endpoint, rpcUrl);
         setSandboxAccounts(accounts);
       }
     }
     initialize();
-  }, [client.config.url]);
+  }, [client.config.endpoint]);
 
   const wallets = useMemo(
     () => [

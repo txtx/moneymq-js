@@ -129,7 +129,7 @@ export interface PayoutSettingsUpdateParams {
 // Helper for making requests
 function createRequester(config: MoneyMQConfig) {
   return async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const url = `${config.url}${path}`;
+    const url = `${config.endpoint}${path}`;
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (config.secret) headers['Authorization'] = `Bearer ${config.secret}`;
 
@@ -160,14 +160,14 @@ class CheckoutAPI {
    * Create a checkout session
    */
   async create(params: CheckoutCreateParams): Promise<CheckoutSession> {
-    return this.request('POST', '/payment/checkout', params);
+    return this.request('POST', '/payment/v1/checkout', params);
   }
 
   /**
    * Retrieve a checkout session
    */
   async retrieve(id: string): Promise<CheckoutSession> {
-    return this.request('GET', `/payment/checkout/${id}`);
+    return this.request('GET', `/payment/v1/checkout/${id}`);
   }
 }
 
@@ -182,7 +182,7 @@ class LinksAPI {
    * Create a payment link
    */
   async create(params: PaymentLinkCreateParams): Promise<PaymentLink> {
-    return this.request('POST', '/payment/links', {
+    return this.request('POST', '/payment/v1/links', {
       ...params,
       expiresAt: params.expiresAt instanceof Date ? params.expiresAt.getTime() : params.expiresAt,
     });
@@ -192,14 +192,14 @@ class LinksAPI {
    * Retrieve a payment link
    */
   async retrieve(id: string): Promise<PaymentLink> {
-    return this.request('GET', `/payment/links/${id}`);
+    return this.request('GET', `/payment/v1/links/${id}`);
   }
 
   /**
    * Deactivate a payment link
    */
   async deactivate(id: string): Promise<PaymentLink> {
-    return this.request('PUT', `/payment/links/${id}`, { active: false });
+    return this.request('PUT', `/payment/v1/links/${id}`, { active: false });
   }
 }
 
@@ -214,7 +214,7 @@ class CustomersAPI {
    * Create a customer
    */
   async create(params: CustomerCreateParams): Promise<Customer> {
-    return this.request('POST', '/payment/customers', params);
+    return this.request('POST', '/payment/v1/customers', params);
   }
 
   /**
@@ -222,14 +222,14 @@ class CustomersAPI {
    */
   async retrieve(id: string, options?: { expand?: string[] }): Promise<Customer> {
     const query = options?.expand ? `?expand=${options.expand.join(',')}` : '';
-    return this.request('GET', `/payment/customers/${id}${query}`);
+    return this.request('GET', `/payment/v1/customers/${id}${query}`);
   }
 
   /**
    * Update a customer
    */
   async update(id: string, params: CustomerUpdateParams): Promise<Customer> {
-    return this.request('PUT', `/payment/customers/${id}`, params);
+    return this.request('PUT', `/payment/v1/customers/${id}`, params);
   }
 
   /**
@@ -244,7 +244,7 @@ class CustomersAPI {
     if (params?.limit) query.set('limit', String(params.limit));
 
     const queryString = query.toString();
-    return this.request('GET', `/payment/customers${queryString ? `?${queryString}` : ''}`);
+    return this.request('GET', `/payment/v1/customers${queryString ? `?${queryString}` : ''}`);
   }
 }
 
@@ -263,14 +263,14 @@ class PayoutsAPI {
    * Create a manual payout
    */
   async create(params: PayoutCreateParams): Promise<Payout> {
-    return this.request('POST', '/payment/payouts', params);
+    return this.request('POST', '/payment/v1/payouts', params);
   }
 
   /**
    * Retrieve a payout
    */
   async retrieve(id: string): Promise<Payout> {
-    return this.request('GET', `/payment/payouts/${id}`);
+    return this.request('GET', `/payment/v1/payouts/${id}`);
   }
 
   /**
@@ -283,7 +283,7 @@ class PayoutsAPI {
     if (params?.startingAfter) query.set('starting_after', params.startingAfter);
 
     const queryString = query.toString();
-    return this.request('GET', `/payment/payouts${queryString ? `?${queryString}` : ''}`);
+    return this.request('GET', `/payment/v1/payouts${queryString ? `?${queryString}` : ''}`);
   }
 }
 
@@ -298,14 +298,14 @@ class PayoutSettingsAPI {
    * Get payout settings
    */
   async retrieve(): Promise<PayoutSettings> {
-    return this.request('GET', '/payment/payouts/settings');
+    return this.request('GET', '/payment/v1/payouts/settings');
   }
 
   /**
    * Update payout settings
    */
   async update(params: PayoutSettingsUpdateParams): Promise<PayoutSettings> {
-    return this.request('PUT', '/payment/payouts/settings', params);
+    return this.request('PUT', '/payment/v1/payouts/settings', params);
   }
 }
 
@@ -320,7 +320,7 @@ class WebhooksAPI {
    * Trigger a test webhook event (for testing)
    */
   async trigger(event: string, data: Record<string, unknown>): Promise<{ success: boolean }> {
-    return this.request('POST', '/payment/webhooks/test', { event, data });
+    return this.request('POST', '/payment/v1/webhooks/test', { event, data });
   }
 }
 
@@ -358,7 +358,7 @@ export class PaymentAPI {
    * Retrieve a payment by ID
    */
   async retrieve(id: string): Promise<Payment> {
-    return this.request('GET', `/payment/${id}`);
+    return this.request('GET', `/payment/v1/${id}`);
   }
 
   /**
@@ -372,6 +372,6 @@ export class PaymentAPI {
     if (params?.startingAfter) query.set('starting_after', params.startingAfter);
 
     const queryString = query.toString();
-    return this.request('GET', `/payment${queryString ? `?${queryString}` : ''}`);
+    return this.request('GET', `/payment/v1${queryString ? `?${queryString}` : ''}`);
   }
 }

@@ -1,7 +1,7 @@
 {
-  "name": "@moneymq/sdk",
+  "name": "@moneymq/better-auth",
   "version": "0.1.2",
-  "description": "MoneyMQ SDK for accepting stablecoin payments",
+  "description": "Better Auth plugin for MoneyMQ stablecoin payments",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
@@ -10,6 +10,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.mjs",
+      "require": "./dist/client.js"
     }
   },
   "files": [
@@ -24,20 +29,28 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/txtx/moneymq-js.git",
-    "directory": "packages/sdk"
+    "directory": "packages/better-auth"
   },
   "keywords": [
     "moneymq",
+    "better-auth",
+    "authentication",
     "payments",
     "stablecoin",
     "usdc",
-    "solana",
-    "x402"
+    "subscriptions"
   ],
   "author": "MoneyMQ",
   "license": "MIT",
+  "dependencies": {
+    "@moneymq/sdk": "workspace:*"
+  },
+  "peerDependencies": {
+    "better-auth": ">=1.0.0"
+  },
   "devDependencies": {
     "@types/node": "^20",
+    "better-auth": "^1.2.8",
     "tsup": "^8.0.0",
     "typescript": "^5"
   }

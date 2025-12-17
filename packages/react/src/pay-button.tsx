@@ -126,7 +126,7 @@ export const PayButton = forwardRef<HTMLButtonElement, PayButtonProps>(
         setError(null);
 
         try {
-          const apiUrl = client.config.url;
+          const apiUrl = client.config.endpoint;
 
           // Fetch server config to get recipient
           const configResponse = await fetch(`${apiUrl}/config`);
@@ -148,7 +148,7 @@ export const PayButton = forwardRef<HTMLButtonElement, PayButtonProps>(
               setProductName(productObject.name);
             } else if (priceObject.product) {
               try {
-                const productResponse = await fetch(`${apiUrl}/v1/products/${priceObject.product}`);
+                const productResponse = await fetch(`${apiUrl}/catalog/v1/products/${priceObject.product}`);
                 if (productResponse.ok) {
                   const product = (await productResponse.json()) as ProductDetails;
                   setProductName(product.name);
@@ -159,7 +159,7 @@ export const PayButton = forwardRef<HTMLButtonElement, PayButtonProps>(
             }
           } else if (priceId) {
             // Fetch price details by ID
-            const priceResponse = await fetch(`${apiUrl}/v1/prices/${priceId}`);
+            const priceResponse = await fetch(`${apiUrl}/catalog/v1/prices/${priceId}`);
             if (!priceResponse.ok) {
               throw new Error(`Failed to fetch price: ${priceResponse.status}`);
             }
@@ -170,7 +170,7 @@ export const PayButton = forwardRef<HTMLButtonElement, PayButtonProps>(
             // Fetch product details if available
             if (price.product) {
               try {
-                const productResponse = await fetch(`${apiUrl}/v1/products/${price.product}`);
+                const productResponse = await fetch(`${apiUrl}/catalog/v1/products/${price.product}`);
                 if (productResponse.ok) {
                   const product = (await productResponse.json()) as ProductDetails;
                   setProductName(product.name);
@@ -193,7 +193,7 @@ export const PayButton = forwardRef<HTMLButtonElement, PayButtonProps>(
       }
 
       fetchPaymentDetails();
-    }, [priceId, priceObject, productObject, client.config.url, onError, hasPriceObject]);
+    }, [priceId, priceObject, productObject, client.config.endpoint, onError, hasPriceObject]);
 
     const handleClick = () => {
       if (!isLoading && !error) {

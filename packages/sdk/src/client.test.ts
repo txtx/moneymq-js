@@ -15,29 +15,29 @@ describe('MoneyMQ Client', () => {
   });
 
   describe('constructor', () => {
-    it('should create instance with url only', () => {
-      const client = new MoneyMQ({ url: 'http://localhost:8488' });
+    it('should create instance with endpoint only', () => {
+      const client = new MoneyMQ({ endpoint: 'http://localhost:8488' });
       expect(client).toBeInstanceOf(MoneyMQ);
       expect(client.catalog).toBeDefined();
       expect(client.payment).toBeDefined();
     });
 
-    it('should create instance with url and secret', () => {
+    it('should create instance with endpoint and secret', () => {
       const client = new MoneyMQ({
-        url: 'http://localhost:8488',
+        endpoint: 'http://localhost:8488',
         secret: 'test-secret',
       });
       expect(client).toBeInstanceOf(MoneyMQ);
     });
 
     it('should set default timeout of 30000ms', () => {
-      const client = new MoneyMQ({ url: 'http://localhost:8488' });
+      const client = new MoneyMQ({ endpoint: 'http://localhost:8488' });
       expect(client).toBeDefined();
     });
 
     it('should accept custom timeout', () => {
       const client = new MoneyMQ({
-        url: 'http://localhost:8488',
+        endpoint: 'http://localhost:8488',
         timeout: 60000,
       });
       expect(client).toBeDefined();
@@ -46,7 +46,7 @@ describe('MoneyMQ Client', () => {
 
   describe('request method', () => {
     it('should make GET request without body', async () => {
-      const client = new MoneyMQ({ url: 'http://localhost:8488' });
+      const client = new MoneyMQ({ endpoint: 'http://localhost:8488' });
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ id: '123' }),
@@ -66,7 +66,7 @@ describe('MoneyMQ Client', () => {
     });
 
     it('should make POST request with body', async () => {
-      const client = new MoneyMQ({ url: 'http://localhost:8488' });
+      const client = new MoneyMQ({ endpoint: 'http://localhost:8488' });
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ id: '123' }),
@@ -86,7 +86,7 @@ describe('MoneyMQ Client', () => {
 
     it('should include Authorization header when secret is provided', async () => {
       const client = new MoneyMQ({
-        url: 'http://localhost:8488',
+        endpoint: 'http://localhost:8488',
         secret: 'test-secret',
       });
       mockFetch.mockResolvedValueOnce({
@@ -108,7 +108,7 @@ describe('MoneyMQ Client', () => {
     });
 
     it('should throw MoneyMQError on non-ok response', async () => {
-      const client = new MoneyMQ({ url: 'http://localhost:8488' });
+      const client = new MoneyMQ({ endpoint: 'http://localhost:8488' });
       mockFetch.mockResolvedValue({
         ok: false,
         status: 404,
@@ -120,7 +120,7 @@ describe('MoneyMQ Client', () => {
     });
 
     it('should handle error response without message', async () => {
-      const client = new MoneyMQ({ url: 'http://localhost:8488' });
+      const client = new MoneyMQ({ endpoint: 'http://localhost:8488' });
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 500,

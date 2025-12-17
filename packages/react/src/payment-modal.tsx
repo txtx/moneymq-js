@@ -140,7 +140,7 @@ async function createSandboxPayment(
 
   // Step 1: Create payment intent
   const paymentIntent = await makeRequestWith402Handling(
-    `${apiUrl}/v1/payment_intents`,
+    `${apiUrl}/catalog/v1/payment_intents`,
     'POST',
     {
       amount: Math.round(amount * 100), // Convert to cents (Stripe-style)
@@ -161,7 +161,7 @@ async function createSandboxPayment(
   // Step 2: Confirm payment intent
   console.log('[MoneyMQ] Confirming payment intent:', paymentIntent.id);
   const confirmedIntent = await makeRequestWith402Handling(
-    `${apiUrl}/v1/payment_intents/${paymentIntent.id}/confirm`,
+    `${apiUrl}/catalog/v1/payment_intents/${paymentIntent.id}/confirm`,
     'POST',
     {},
     secretKeyHex,
@@ -306,7 +306,7 @@ export function PaymentModal({
     try {
       // For sandbox accounts, handle payment directly
       if (selectedPaymentMethod?.type === 'sandbox_account' && secretKeyHex) {
-        const apiUrl = normalizeRpcUrl(client.config.url);
+        const apiUrl = normalizeRpcUrl(client.config.endpoint);
 
         // Fetch RPC URL from config
         let rpcUrl = 'http://localhost:8899';
@@ -383,7 +383,7 @@ export function PaymentModal({
       setIsSending(false);
       onError?.(err instanceof Error ? err : new Error(String(err)));
     }
-  }, [publicKey, recipient, amount, currency, onSuccess, onError, onClose, selectedPaymentMethod, client.config.url, productName]);
+  }, [publicKey, recipient, amount, currency, onSuccess, onError, onClose, selectedPaymentMethod, client.config.endpoint, productName]);
 
   // Can pay with either browser extension (connected) or sandbox account
   const canPay = (

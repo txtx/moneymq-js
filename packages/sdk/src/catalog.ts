@@ -58,7 +58,7 @@ class ProductsAPI {
   constructor(private config: MoneyMQConfig) {}
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const url = `${this.config.url}${path}`;
+    const url = `${this.config.endpoint}${path}`;
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (this.config.secret) headers['Authorization'] = `Bearer ${this.config.secret}`;
 
@@ -80,14 +80,14 @@ class ProductsAPI {
    * Create a new product
    */
   async create(params: ProductCreateParams): Promise<Product> {
-    return this.request('POST', '/v1/products', params);
+    return this.request('POST', '/catalog/v1/products', params);
   }
 
   /**
    * Retrieve a product by ID
    */
   async retrieve(id: string): Promise<Product> {
-    return this.request('GET', `/v1/products/${id}`);
+    return this.request('GET', `/catalog/v1/products/${id}`);
   }
 
   /**
@@ -100,21 +100,21 @@ class ProductsAPI {
     if (params?.startingAfter) query.set('starting_after', params.startingAfter);
 
     const queryString = query.toString();
-    return this.request('GET', `/v1/products${queryString ? `?${queryString}` : ''}`);
+    return this.request('GET', `/catalog/v1/products${queryString ? `?${queryString}` : ''}`);
   }
 
   /**
    * Update a product
    */
   async update(id: string, params: Partial<ProductCreateParams>): Promise<Product> {
-    return this.request('PUT', `/v1/products/${id}`, params);
+    return this.request('PUT', `/catalog/v1/products/${id}`, params);
   }
 
   /**
    * Delete a product
    */
   async delete(id: string): Promise<{ deleted: boolean }> {
-    return this.request('DELETE', `/v1/products/${id}`);
+    return this.request('DELETE', `/catalog/v1/products/${id}`);
   }
 }
 
@@ -122,7 +122,7 @@ class PricesAPI {
   constructor(private config: MoneyMQConfig) {}
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const url = `${this.config.url}${path}`;
+    const url = `${this.config.endpoint}${path}`;
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (this.config.secret) headers['Authorization'] = `Bearer ${this.config.secret}`;
 
@@ -144,14 +144,14 @@ class PricesAPI {
    * Create a new price
    */
   async create(params: PriceCreateParams): Promise<Price> {
-    return this.request('POST', '/v1/prices', params);
+    return this.request('POST', '/catalog/v1/prices', params);
   }
 
   /**
    * Retrieve a price by ID
    */
   async retrieve(id: string): Promise<Price> {
-    return this.request('GET', `/v1/prices/${id}`);
+    return this.request('GET', `/catalog/v1/prices/${id}`);
   }
 
   /**
@@ -168,7 +168,7 @@ class PricesAPI {
     if (params?.limit) query.set('limit', String(params.limit));
 
     const queryString = query.toString();
-    return this.request('GET', `/v1/prices${queryString ? `?${queryString}` : ''}`);
+    return this.request('GET', `/catalog/v1/prices${queryString ? `?${queryString}` : ''}`);
   }
 }
 

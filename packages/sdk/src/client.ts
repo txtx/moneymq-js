@@ -7,7 +7,7 @@ import { PaymentAPI } from './payment';
  * @example
  * ```typescript
  * const config: MoneyMQConfig = {
- *   url: 'https://api.moneymq.com',
+ *   endpoint: 'https://api.moneymq.com',
  *   secret: 'your-api-secret', // Optional
  *   timeout: 30000,
  * };
@@ -15,10 +15,10 @@ import { PaymentAPI } from './payment';
  */
 export interface MoneyMQConfig {
   /**
-   * MoneyMQ API URL
+   * MoneyMQ API endpoint
    * @example 'http://localhost:8488' or 'https://api.moneymq.com'
    */
-  url: string;
+  endpoint: string;
   /**
    * Optional secret key for authenticated requests
    * Used for server-side operations that require authentication
@@ -39,7 +39,7 @@ export interface MoneyMQConfig {
  * import { MoneyMQ } from '@moneymq/sdk';
  *
  * const moneymq = new MoneyMQ({
- *   url: process.env.MONEYMQ_URL ?? 'http://localhost:8488',
+ *   endpoint: process.env.MONEYMQ_ENDPOINT ?? 'http://localhost:8488',
  * });
  *
  * // Create a product
@@ -83,7 +83,7 @@ export class MoneyMQ {
     path: string,
     body?: unknown,
   ): Promise<T> {
-    const url = `${this.config.url}${path}`;
+    const url = `${this.config.endpoint}${path}`;
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',

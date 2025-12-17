@@ -10,7 +10,7 @@ describe('PaymentAPI', () => {
   beforeEach(() => {
     global.fetch = mockFetch;
     mockFetch.mockReset();
-    client = new MoneyMQ({ url: 'http://localhost:8488' });
+    client = new MoneyMQ({ endpoint: 'http://localhost:8488' });
   });
 
   afterEach(() => {
@@ -45,7 +45,7 @@ describe('PaymentAPI', () => {
         });
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/payment/checkout',
+          'http://localhost:8488/payment/v1/checkout',
           expect.objectContaining({
             method: 'POST',
           }),
@@ -80,7 +80,7 @@ describe('PaymentAPI', () => {
         const result = await client.payment.checkout.retrieve('cs_123');
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/payment/checkout/cs_123',
+          'http://localhost:8488/payment/v1/checkout/cs_123',
           expect.objectContaining({ method: 'GET' }),
         );
         expect(result).toEqual(mockSession);
@@ -110,7 +110,7 @@ describe('PaymentAPI', () => {
         });
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/payment/links',
+          'http://localhost:8488/payment/v1/links',
           expect.objectContaining({ method: 'POST' }),
         );
         expect(result).toEqual(mockLink);
@@ -166,7 +166,7 @@ describe('PaymentAPI', () => {
         const result = await client.payment.links.retrieve('plink_123');
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/payment/links/plink_123',
+          'http://localhost:8488/payment/v1/links/plink_123',
           expect.objectContaining({ method: 'GET' }),
         );
         expect(result).toEqual(mockLink);
@@ -183,7 +183,7 @@ describe('PaymentAPI', () => {
         const result = await client.payment.links.deactivate('plink_123');
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/payment/links/plink_123',
+          'http://localhost:8488/payment/v1/links/plink_123',
           expect.objectContaining({
             method: 'PUT',
             body: JSON.stringify({ active: false }),
@@ -216,7 +216,7 @@ describe('PaymentAPI', () => {
         });
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/payment/customers',
+          'http://localhost:8488/payment/v1/customers',
           expect.objectContaining({ method: 'POST' }),
         );
         expect(result).toEqual(mockCustomer);
@@ -233,7 +233,7 @@ describe('PaymentAPI', () => {
         const result = await client.payment.customers.retrieve('cus_123');
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/payment/customers/cus_123',
+          'http://localhost:8488/payment/v1/customers/cus_123',
           expect.objectContaining({ method: 'GET' }),
         );
         expect(result).toEqual(mockCustomer);
@@ -266,7 +266,7 @@ describe('PaymentAPI', () => {
         });
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/payment/customers/cus_123',
+          'http://localhost:8488/payment/v1/customers/cus_123',
           expect.objectContaining({
             method: 'PUT',
             body: JSON.stringify({ name: 'Updated Name' }),
@@ -286,7 +286,7 @@ describe('PaymentAPI', () => {
         const result = await client.payment.customers.list();
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/payment/customers',
+          'http://localhost:8488/payment/v1/customers',
           expect.objectContaining({ method: 'GET' }),
         );
         expect(result.data).toHaveLength(1);
@@ -304,7 +304,7 @@ describe('PaymentAPI', () => {
         });
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/payment/customers?email=test%40example.com&limit=10',
+          'http://localhost:8488/payment/v1/customers?email=test%40example.com&limit=10',
           expect.any(Object),
         );
       });
@@ -336,7 +336,7 @@ describe('PaymentAPI', () => {
         });
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/payment/payouts',
+          'http://localhost:8488/payment/v1/payouts',
           expect.objectContaining({ method: 'POST' }),
         );
         expect(result).toEqual(mockPayout);
@@ -353,7 +353,7 @@ describe('PaymentAPI', () => {
         const result = await client.payment.payouts.retrieve('po_123');
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/payment/payouts/po_123',
+          'http://localhost:8488/payment/v1/payouts/po_123',
           expect.objectContaining({ method: 'GET' }),
         );
         expect(result).toEqual(mockPayout);
@@ -370,7 +370,7 @@ describe('PaymentAPI', () => {
         const result = await client.payment.payouts.list();
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/payment/payouts',
+          'http://localhost:8488/payment/v1/payouts',
           expect.objectContaining({ method: 'GET' }),
         );
         expect(result.data).toHaveLength(1);
@@ -389,7 +389,7 @@ describe('PaymentAPI', () => {
         });
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/payment/payouts?status=pending&limit=5&starting_after=po_abc',
+          'http://localhost:8488/payment/v1/payouts?status=pending&limit=5&starting_after=po_abc',
           expect.any(Object),
         );
       });
@@ -409,7 +409,7 @@ describe('PaymentAPI', () => {
         const result = await client.payment.payouts.settings.retrieve();
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/payment/payouts/settings',
+          'http://localhost:8488/payment/v1/payouts/settings',
           expect.objectContaining({ method: 'GET' }),
         );
         expect(result.schedule).toBe('instant');
@@ -430,7 +430,7 @@ describe('PaymentAPI', () => {
         });
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/payment/payouts/settings',
+          'http://localhost:8488/payment/v1/payouts/settings',
           expect.objectContaining({
             method: 'PUT',
             body: JSON.stringify({ schedule: 'daily' }),
@@ -461,7 +461,7 @@ describe('PaymentAPI', () => {
         const result = await client.payment.retrieve('pay_123');
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/payment/pay_123',
+          'http://localhost:8488/payment/v1/pay_123',
           expect.objectContaining({ method: 'GET' }),
         );
         expect(result).toEqual(mockPayment);
@@ -478,7 +478,7 @@ describe('PaymentAPI', () => {
         const result = await client.payment.list();
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/payment',
+          'http://localhost:8488/payment/v1',
           expect.objectContaining({ method: 'GET' }),
         );
         expect(result.data).toHaveLength(1);
@@ -498,7 +498,7 @@ describe('PaymentAPI', () => {
         });
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/payment?customer=cus_123&status=completed&limit=10&starting_after=pay_abc',
+          'http://localhost:8488/payment/v1?customer=cus_123&status=completed&limit=10&starting_after=pay_abc',
           expect.any(Object),
         );
       });
@@ -517,7 +517,7 @@ describe('PaymentAPI', () => {
       });
 
       expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:8488/payment/webhooks/test',
+        'http://localhost:8488/payment/v1/webhooks/test',
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({

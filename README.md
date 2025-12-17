@@ -12,6 +12,7 @@ JavaScript/TypeScript SDK for accepting stablecoin payments with MoneyMQ.
 |---------|-------------|---------|
 | [@moneymq/sdk](./packages/sdk) | Core SDK for MoneyMQ API | [![npm](https://img.shields.io/npm/v/@moneymq/sdk.svg)](https://www.npmjs.com/package/@moneymq/sdk) |
 | [@moneymq/x402](./packages/x402) | x402 payment protocol utilities | [![npm](https://img.shields.io/npm/v/@moneymq/x402.svg)](https://www.npmjs.com/package/@moneymq/x402) |
+| [@moneymq/better-auth](./packages/better-auth) | Better Auth plugin for MoneyMQ | [![npm](https://img.shields.io/npm/v/@moneymq/better-auth.svg)](https://www.npmjs.com/package/@moneymq/better-auth) |
 
 ## Installation
 
@@ -21,6 +22,9 @@ npm install @moneymq/sdk
 
 # x402 protocol support
 npm install @moneymq/x402
+
+# Better Auth plugin
+npm install @moneymq/better-auth
 ```
 
 ## Quick Start
@@ -31,7 +35,7 @@ npm install @moneymq/x402
 import { MoneyMQ } from '@moneymq/sdk';
 
 const moneymq = new MoneyMQ({
-  url: 'http://localhost:8488',
+  endpoint: 'http://localhost:8488',
 });
 
 // Create a product
@@ -108,7 +112,7 @@ app.get('/api/data', requirePayment({
 
 ```typescript
 const moneymq = new MoneyMQ({
-  url: string,      // MoneyMQ API URL
+  endpoint: string, // MoneyMQ API endpoint
   secret?: string,  // Optional: for authenticated requests
   timeout?: number, // Request timeout (default: 30000ms)
 });

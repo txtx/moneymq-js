@@ -10,7 +10,7 @@ describe('CatalogAPI', () => {
   beforeEach(() => {
     global.fetch = mockFetch;
     mockFetch.mockReset();
-    client = new MoneyMQ({ url: 'http://localhost:8488' });
+    client = new MoneyMQ({ endpoint: 'http://localhost:8488' });
   });
 
   afterEach(() => {
@@ -42,7 +42,7 @@ describe('CatalogAPI', () => {
         });
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/catalog/products',
+          'http://localhost:8488/catalog/v1/products',
           expect.objectContaining({
             method: 'POST',
             body: JSON.stringify({ name: 'Test Product', description: 'A test product' }),
@@ -81,7 +81,7 @@ describe('CatalogAPI', () => {
         const result = await client.catalog.products.retrieve('prod_123');
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/catalog/products/prod_123',
+          'http://localhost:8488/catalog/v1/products/prod_123',
           expect.objectContaining({ method: 'GET' }),
         );
         expect(result).toEqual(mockProduct);
@@ -98,7 +98,7 @@ describe('CatalogAPI', () => {
         const result = await client.catalog.products.list();
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/catalog/products',
+          'http://localhost:8488/catalog/v1/products',
           expect.objectContaining({ method: 'GET' }),
         );
         expect(result.data).toHaveLength(1);
@@ -118,7 +118,7 @@ describe('CatalogAPI', () => {
         });
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/catalog/products?active=true&limit=10&starting_after=prod_abc',
+          'http://localhost:8488/catalog/v1/products?active=true&limit=10&starting_after=prod_abc',
           expect.any(Object),
         );
       });
@@ -137,7 +137,7 @@ describe('CatalogAPI', () => {
         });
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/catalog/products/prod_123',
+          'http://localhost:8488/catalog/v1/products/prod_123',
           expect.objectContaining({
             method: 'PUT',
             body: JSON.stringify({ name: 'Updated Product' }),
@@ -157,7 +157,7 @@ describe('CatalogAPI', () => {
         const result = await client.catalog.products.delete('prod_123');
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/catalog/products/prod_123',
+          'http://localhost:8488/catalog/v1/products/prod_123',
           expect.objectContaining({ method: 'DELETE' }),
         );
         expect(result.deleted).toBe(true);
@@ -192,7 +192,7 @@ describe('CatalogAPI', () => {
         });
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/catalog/prices',
+          'http://localhost:8488/catalog/v1/prices',
           expect.objectContaining({
             method: 'POST',
           }),
@@ -233,7 +233,7 @@ describe('CatalogAPI', () => {
         const result = await client.catalog.prices.retrieve('price_123');
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/catalog/prices/price_123',
+          'http://localhost:8488/catalog/v1/prices/price_123',
           expect.objectContaining({ method: 'GET' }),
         );
         expect(result).toEqual(mockPrice);
@@ -250,7 +250,7 @@ describe('CatalogAPI', () => {
         const result = await client.catalog.prices.list();
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/catalog/prices',
+          'http://localhost:8488/catalog/v1/prices',
           expect.objectContaining({ method: 'GET' }),
         );
         expect(result.data).toHaveLength(1);
@@ -269,7 +269,7 @@ describe('CatalogAPI', () => {
         });
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/catalog/prices?product=prod_123&active=true&limit=5',
+          'http://localhost:8488/catalog/v1/prices?product=prod_123&active=true&limit=5',
           expect.any(Object),
         );
       });

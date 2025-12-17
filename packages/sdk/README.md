@@ -18,7 +18,7 @@ yarn add @moneymq/sdk
 import { MoneyMQ } from '@moneymq/sdk';
 
 const moneymq = new MoneyMQ({
-  url: 'http://localhost:8488',
+  endpoint: 'http://localhost:8488',
 });
 
 // Create a product
@@ -47,8 +47,8 @@ const session = await moneymq.payment.checkout.create({
 
 ```typescript
 const moneymq = new MoneyMQ({
-  // Required: MoneyMQ API URL
-  url: 'http://localhost:8488',
+  // Required: MoneyMQ API endpoint
+  endpoint: 'http://localhost:8488',
 
   // Optional: Secret key for authenticated requests
   secret: process.env.MONEYMQ_SECRET,
