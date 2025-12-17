@@ -1,0 +1,58 @@
+{
+  "name": "@moneymq/react",
+  "version": "0.1.1",
+  "description": "MoneyMQ React components for accepting stablecoin payments",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist .turbo node_modules"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/txtx/moneymq-js.git",
+    "directory": "packages/react"
+  },
+  "keywords": [
+    "moneymq",
+    "react",
+    "payments",
+    "stablecoin",
+    "solana",
+    "wallet"
+  ],
+  "author": "MoneyMQ",
+  "license": "MIT",
+  "peerDependencies": {
+    "react": "^18 || ^19",
+    "react-dom": "^18 || ^19"
+  },
+  "dependencies": {
+    "@headlessui/react": "^2.2.0",
+    "@solana/wallet-adapter-base": "^0.9.25",
+    "@solana/wallet-adapter-react": "^0.15.39",
+    "@solana/wallet-adapter-wallets": "^0.19.35",
+    "x402": "^0.7.3",
+    "x402-fetch": "^0.7.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "tsup": "^8.0.0",
+    "typescript": "^5"
+  }
+}

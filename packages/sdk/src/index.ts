@@ -1,6 +1,10 @@
 export { MoneyMQ } from './client';
 export type { MoneyMQConfig } from './client';
 
+// Config utilities
+export { fetchConfig, getRpcUrl } from './config';
+export type { ServerConfig } from './config';
+
 // Catalog types
 export type {
   Product,

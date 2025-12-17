@@ -57,7 +57,7 @@ export interface MoneyMQConfig {
  * ```
  */
 export class MoneyMQ {
-  private config: MoneyMQConfig;
+  public readonly config: MoneyMQConfig;
 
   /** Catalog API for products and prices */
   public readonly catalog: CatalogAPI;
