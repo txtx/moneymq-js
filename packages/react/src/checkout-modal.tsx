@@ -375,6 +375,8 @@ export function CheckoutModal({
     if (animationPhase === 'closing') return;
     setAnimationPhase('closing');
     setTimeout(() => {
+      setShouldRender(false);
+      setAnimationPhase('closed');
       onClose();
     }, 300);
   }, [onClose, animationPhase]);
