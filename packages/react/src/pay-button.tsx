@@ -12,19 +12,6 @@ export interface Payment {
   signature?: string;
 }
 
-interface PriceDetails {
-  id: string;
-  unit_amount: number;
-  currency: string;
-  product: string;
-}
-
-interface ProductDetails {
-  id: string;
-  name: string;
-  description?: string;
-}
-
 interface ServerConfig {
   x402?: {
     payoutAccount?: {
@@ -47,13 +34,18 @@ export interface Product {
   description?: string;
 }
 
+export interface BasketItem {
+  /** Product details */
+  product: Product;
+  /** Price details */
+  price: Price;
+  /** Quantity (defaults to 1) */
+  quantity?: number;
+}
+
 export interface PayButtonProps {
-  /** Price ID to fetch details from API */
-  priceId?: string;
-  /** Price object (alternative to priceId) */
-  price?: Price;
-  /** Product object */
-  product?: Product;
+  /** Basket of items to purchase */
+  basket: BasketItem[];
   onSuccess?: (payment: Payment) => void;
   onError?: (error: Error) => void;
   variant?: 'solid' | 'outline';
@@ -93,9 +85,7 @@ const outlineStyle: React.CSSProperties = {
 export const PayButton = forwardRef<HTMLButtonElement, PayButtonProps>(
   function PayButton(
     {
-      priceId,
-      price: priceObject,
-      product: productObject,
+      basket,
       onSuccess,
       onError,
       variant = 'solid',
@@ -108,17 +98,36 @@ export const PayButton = forwardRef<HTMLButtonElement, PayButtonProps>(
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isHovered, setIsHovered] = useState(false);
 
-    // Check if price object is provided directly
-    const hasPriceObject = priceObject !== undefined;
-
-    const [isLoading, setIsLoading] = useState(!hasPriceObject);
+    const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Payment data (unit_amount is in cents)
-    const [amount, setAmount] = useState<number>(hasPriceObject ? priceObject.unit_amount / 100 : 0);
-    const [currency, setCurrency] = useState<string>(hasPriceObject ? priceObject.currency.toUpperCase() : 'USDC');
+    // Payment data computed from basket
     const [recipient, setRecipient] = useState<string>('');
-    const [productName, setProductName] = useState<string | undefined>(productObject?.name);
+
+    // Compute totals from basket
+    const { totalAmount, currency, lineItems } = React.useMemo(() => {
+      if (!basket || basket.length === 0) {
+        return { totalAmount: 0, currency: 'USDC', lineItems: [] };
+      }
+
+      // Use the currency from the first item (assuming all items have same currency)
+      const baseCurrency = basket[0].price.currency.toUpperCase();
+
+      const items = basket.map((item) => ({
+        product: item.product,
+        price: item.price,
+        quantity: item.quantity ?? 1,
+        subtotal: (item.price.unit_amount / 100) * (item.quantity ?? 1),
+      }));
+
+      const total = items.reduce((sum, item) => sum + item.subtotal, 0);
+
+      return {
+        totalAmount: total,
+        currency: baseCurrency,
+        lineItems: items,
+      };
+    }, [basket]);
 
     useEffect(() => {
       async function fetchPaymentDetails() {
@@ -126,6 +135,10 @@ export const PayButton = forwardRef<HTMLButtonElement, PayButtonProps>(
         setError(null);
 
         try {
+          if (!basket || basket.length === 0) {
+            throw new Error('Basket is empty');
+          }
+
           const apiUrl = client.config.endpoint;
 
           // Fetch server config to get recipient
@@ -136,51 +149,6 @@ export const PayButton = forwardRef<HTMLButtonElement, PayButtonProps>(
           const config = (await configResponse.json()) as ServerConfig;
           if (config.x402?.payoutAccount?.address) {
             setRecipient(config.x402.payoutAccount.address);
-          }
-
-          // If price object provided, use it directly
-          if (hasPriceObject) {
-            setAmount(priceObject.unit_amount / 100);
-            setCurrency(priceObject.currency.toUpperCase());
-
-            // Use product object if provided, otherwise fetch
-            if (productObject) {
-              setProductName(productObject.name);
-            } else if (priceObject.product) {
-              try {
-                const productResponse = await fetch(`${apiUrl}/catalog/v1/products/${priceObject.product}`);
-                if (productResponse.ok) {
-                  const product = (await productResponse.json()) as ProductDetails;
-                  setProductName(product.name);
-                }
-              } catch {
-                // Product fetch is optional, ignore errors
-              }
-            }
-          } else if (priceId) {
-            // Fetch price details by ID
-            const priceResponse = await fetch(`${apiUrl}/catalog/v1/prices/${priceId}`);
-            if (!priceResponse.ok) {
-              throw new Error(`Failed to fetch price: ${priceResponse.status}`);
-            }
-            const price = (await priceResponse.json()) as PriceDetails;
-            setAmount(price.unit_amount / 100);
-            setCurrency(price.currency.toUpperCase());
-
-            // Fetch product details if available
-            if (price.product) {
-              try {
-                const productResponse = await fetch(`${apiUrl}/catalog/v1/products/${price.product}`);
-                if (productResponse.ok) {
-                  const product = (await productResponse.json()) as ProductDetails;
-                  setProductName(product.name);
-                }
-              } catch {
-                // Product fetch is optional, ignore errors
-              }
-            }
-          } else {
-            throw new Error('Either priceId or price object is required');
           }
         } catch (err) {
           console.error('[PayButton] Error fetching payment details:', err);
@@ -193,7 +161,7 @@ export const PayButton = forwardRef<HTMLButtonElement, PayButtonProps>(
       }
 
       fetchPaymentDetails();
-    }, [priceId, priceObject, productObject, client.config.endpoint, onError, hasPriceObject]);
+    }, [basket, client.config.endpoint, onError]);
 
     const handleClick = () => {
       if (!isLoading && !error) {
@@ -204,7 +172,7 @@ export const PayButton = forwardRef<HTMLButtonElement, PayButtonProps>(
     const handlePaymentSuccess = (signature: string) => {
       const payment: Payment = {
         id: `pay_${Date.now()}`,
-        amount,
+        amount: totalAmount,
         currency,
         status: 'completed',
         signature,
@@ -250,10 +218,10 @@ export const PayButton = forwardRef<HTMLButtonElement, PayButtonProps>(
         <PaymentModal
           visible={isModalOpen}
           onClose={() => setIsModalOpen(false)}
-          amount={amount}
+          amount={totalAmount}
           currency={currency}
           recipient={recipient}
-          productName={productName}
+          lineItems={lineItems}
           onSuccess={handlePaymentSuccess}
           onError={handlePaymentError}
         />

@@ -134,9 +134,14 @@ async function createSandboxPayment(
   recipient: string,
   senderAddress: string,
   secretKeyHex: string,
-  productName?: string
+  lineItems?: LineItem[]
 ): Promise<string> {
   console.log('[MoneyMQ] Creating sandbox payment...', { amount, currency, recipient, senderAddress });
+
+  // Build description from line items
+  const description = lineItems && lineItems.length > 0
+    ? `Purchase - ${lineItems.map(item => item.product.name).join(', ')}`
+    : 'Payment';
 
   // Step 1: Create payment intent
   const paymentIntent = await makeRequestWith402Handling(
@@ -146,7 +151,7 @@ async function createSandboxPayment(
       amount: Math.round(amount * 100), // Convert to cents (Stripe-style)
       currency: currency.toLowerCase(),
       customer: senderAddress,
-      description: productName ? `Purchase - ${productName}` : 'Payment',
+      description,
       metadata: {
         sender_address: senderAddress,
         recipient_address: recipient,
@@ -182,13 +187,28 @@ interface SelectedPaymentMethod {
   sandboxAccount?: SandboxAccount;
 }
 
+export interface LineItem {
+  product: {
+    id: string;
+    name: string;
+    description?: string;
+  };
+  price: {
+    id: string;
+    unit_amount: number;
+    currency: string;
+  };
+  quantity: number;
+  subtotal: number;
+}
+
 export interface PaymentModalProps {
   visible: boolean;
   onClose: () => void;
   amount: number;
   currency: string;
   recipient: string;
-  productName?: string;
+  lineItems?: LineItem[];
   onSuccess?: (signature: string) => void;
   onError?: (error: Error) => void;
   accentColor?: string;
@@ -205,7 +225,7 @@ export function PaymentModal({
   amount,
   currency,
   recipient,
-  productName,
+  lineItems,
   onSuccess,
   onError,
   accentColor = '#ec4899',
@@ -326,7 +346,7 @@ export function PaymentModal({
           recipient,
           senderAddress,
           secretKeyHex,
-          productName
+          lineItems
         );
 
         setIsSending(false);
@@ -383,7 +403,7 @@ export function PaymentModal({
       setIsSending(false);
       onError?.(err instanceof Error ? err : new Error(String(err)));
     }
-  }, [publicKey, recipient, amount, currency, onSuccess, onError, onClose, selectedPaymentMethod, client.config.endpoint, productName]);
+  }, [publicKey, recipient, amount, currency, onSuccess, onError, onClose, selectedPaymentMethod, client.config.endpoint, lineItems]);
 
   // Can pay with either browser extension (connected) or sandbox account
   const canPay = (
@@ -888,10 +908,42 @@ export function PaymentModal({
               borderTop: '1px solid #3a3a3c',
             }}
           >
-            {/* Product name and amount */}
+            {/* Line items and amount */}
             <div style={{ marginBottom: '1rem' }}>
+              {/* Line items list */}
+              {lineItems && lineItems.length > 0 && (
+                <div style={{ marginBottom: '0.75rem' }}>
+                  {lineItems.map((item, index) => (
+                    <div
+                      key={item.product.id + '-' + index}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '0.5rem 0',
+                        borderBottom: index < lineItems.length - 1 ? '1px solid #3a3a3c' : 'none',
+                      }}
+                    >
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '0.875rem', color: '#fff', fontWeight: 500 }}>
+                          {item.product.name}
+                        </div>
+                        {item.quantity > 1 && (
+                          <div style={{ fontSize: '0.75rem', color: '#8e8e93' }}>
+                            Qty: {item.quantity} × {(item.price.unit_amount / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {item.price.currency.toUpperCase()}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ fontSize: '0.875rem', color: '#fff', fontWeight: 500 }}>
+                        {item.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {item.price.currency.toUpperCase()}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div style={{ fontSize: '0.875rem', color: '#8e8e93', marginBottom: '0.25rem' }}>
-                {productName ? `Pay ${productName}` : 'Total'}
+                Total
               </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.375rem' }}>
