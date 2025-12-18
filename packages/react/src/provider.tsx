@@ -36,8 +36,8 @@ interface SandboxContextState {
   sandboxAccounts: SandboxAccount[];
 }
 
-const MoneyMQContext = createContext<MoneyMQClient | null>(null);
-const SandboxContext = createContext<SandboxContextState>({
+export const MoneyMQContext = createContext<MoneyMQClient | null>(null);
+export const SandboxContext = createContext<SandboxContextState>({
   isSandboxMode: false,
   sandboxAccounts: [],
 });

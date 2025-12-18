@@ -97,21 +97,12 @@ We follow [Conventional Commits](https://www.conventionalcommits.org/):
 moneymq-js/
 ├── packages/
 │   ├── sdk/           # @moneymq/sdk - Core SDK
-│   │   ├── src/
-│   │   │   ├── client.ts      # Main MoneyMQ client
-│   │   │   ├── catalog.ts     # Products & Prices API
-│   │   │   ├── payment.ts     # Payment API
-│   │   │   └── *.test.ts      # Tests
-│   │   └── package.json
-│   │
-│   └── x402/          # @moneymq/x402 - x402 protocol
-│       ├── src/
-│       │   ├── payUpon402.ts       # Client-side handler
-│       │   ├── middleware.ts       # Express middleware
-│       │   ├── createStripeClient.ts # Stripe integration
-│       │   └── *.test.ts           # Tests
-│       └── package.json
-│
+│   ├── react/         # @moneymq/react - React components
+│   ├── x402/          # @moneymq/x402 - x402 protocol
+│   └── better-auth/   # @moneymq/better-auth - Better Auth plugin
+├── scripts/
+│   ├── release.js     # Automated release script
+│   └── sync-versions.js # Version syncing across packages
 ├── vitest.config.ts   # Test configuration
 ├── eslint.config.mjs  # Linting configuration
 ├── prettier.config.mjs # Formatting configuration
@@ -171,6 +162,113 @@ describe('myFunction', () => {
 - Update README if adding new features
 - Add JSDoc comments to new exports
 - Include code examples where helpful
+
+## Storybook
+
+The `@moneymq/react` package includes Storybook for developing and testing UI components in isolation.
+
+### Running Storybook
+
+```bash
+# Start Storybook dev server
+pnpm --filter @moneymq/react storybook
+
+# Build static Storybook
+pnpm --filter @moneymq/react build-storybook
+```
+
+Storybook runs at http://localhost:6006
+
+### Writing Stories
+
+Stories are located in `packages/react/src/stories/`. Each component should have a corresponding `.stories.tsx` file.
+
+Example story:
+
+```tsx
+import type { Meta, StoryObj } from '@storybook/react-vite';
+import { MyComponent } from '../my-component';
+
+const meta = {
+  title: 'Components/MyComponent',
+  component: MyComponent,
+  parameters: { layout: 'centered' },
+  tags: ['autodocs'],
+} satisfies Meta<typeof MyComponent>;
+
+export default meta;
+type Story = StoryObj<typeof meta>;
+
+export const Default: Story = {
+  args: {
+    // component props
+  },
+};
+```
+
+### Storybook Configuration
+
+- `.storybook/main.ts` - Storybook configuration
+- `.storybook/preview.tsx` - Global decorators and providers
+- `.storybook/preview-head.html` - Custom fonts and styles
+
+The preview includes mock providers (MoneyMQ, Sandbox accounts, Wallet) so components can be tested without a running server.
+
+## Release Process
+
+### Automated Release
+
+Use the release script to build, bump version, and publish all public packages:
+
+```bash
+# Patch release (0.0.x) - bug fixes
+pnpm release:patch
+
+# Minor release (0.x.0) - new features
+pnpm release:minor
+
+# Major release (x.0.0) - breaking changes
+pnpm release:major
+```
+
+The release script will:
+1. Build all packages
+2. Commit any uncommitted changes
+3. Bump the version (syncs across all packages)
+4. Publish public packages to npm
+5. Push commits and tags to git
+
+### Manual Release
+
+If you need more control:
+
+```bash
+# 1. Build all packages
+pnpm build
+
+# 2. Bump version (uses npm version which triggers sync-versions.js)
+npm version patch|minor|major
+
+# 3. Publish individual packages
+cd packages/sdk && pnpm publish --access public
+cd packages/react && pnpm publish --access public
+cd packages/x402 && pnpm publish --access public
+cd packages/better-auth && pnpm publish --access public
+
+# 4. Push to git
+git push && git push --tags
+```
+
+### Version Syncing
+
+All packages share the same version number. When you run `npm version`, the `sync-versions.js` script automatically updates all package.json files to match.
+
+### Published Packages
+
+- `@moneymq/sdk` - Core SDK
+- `@moneymq/react` - React components
+- `@moneymq/x402` - x402 protocol utilities
+- `@moneymq/better-auth` - Better Auth plugin
 
 ## Questions?
 
