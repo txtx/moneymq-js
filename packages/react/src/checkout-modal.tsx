@@ -344,6 +344,41 @@ export function CheckoutModal({
   const client = useMoneyMQ();
   const lottieRef = useRef<LottieRefCurrentProps | null>(null);
 
+  // Animation states
+  const [shouldRender, setShouldRender] = useState(false);
+  const [animationPhase, setAnimationPhase] = useState<'closed' | 'backdrop' | 'open' | 'closing'>('closed');
+
+  // Handle opening animation
+  useEffect(() => {
+    if (visible && !shouldRender) {
+      setShouldRender(true);
+      // Start with backdrop animation
+      requestAnimationFrame(() => {
+        setAnimationPhase('backdrop');
+        // Then open modal after backdrop is ready
+        setTimeout(() => {
+          setAnimationPhase('open');
+        }, 150);
+      });
+    } else if (!visible && shouldRender && animationPhase !== 'closing') {
+      // Trigger close animation
+      setAnimationPhase('closing');
+      // Wait for animation to complete before unmounting
+      setTimeout(() => {
+        setShouldRender(false);
+        setAnimationPhase('closed');
+      }, 300);
+    }
+  }, [visible, shouldRender, animationPhase]);
+
+  const handleAnimatedClose = useCallback(() => {
+    if (animationPhase === 'closing') return;
+    setAnimationPhase('closing');
+    setTimeout(() => {
+      onClose();
+    }, 300);
+  }, [onClose, animationPhase]);
+
   const copyToClipboard = (text: string, type: 'sender' | 'recipient') => {
     navigator.clipboard.writeText(text);
     if (type === 'sender') {
@@ -590,7 +625,7 @@ export function CheckoutModal({
     return () => clearInterval(interval);
   }, [canPay, visible]);
 
-  if (!visible) return null;
+  if (!shouldRender) return null;
 
   // Wallet icon SVG
   const WalletIcon = () => (
@@ -635,6 +670,11 @@ export function CheckoutModal({
   );
 
 
+  // Compute animation styles
+  const isBackdropVisible = animationPhase === 'backdrop' || animationPhase === 'open';
+  const isModalVisible = animationPhase === 'open';
+  const isClosing = animationPhase === 'closing';
+
   return (
     <>
       <style>{`
@@ -650,10 +690,11 @@ export function CheckoutModal({
           position: 'fixed',
           inset: 0,
           zIndex: 9998,
-          backgroundColor: 'rgba(0, 0, 0, 0.6)',
-          backdropFilter: 'blur(8px)',
+          backgroundColor: isBackdropVisible && !isClosing ? 'rgba(0, 0, 0, 0.6)' : 'rgba(0, 0, 0, 0)',
+          backdropFilter: isBackdropVisible && !isClosing ? 'blur(8px)' : 'blur(0px)',
+          transition: 'background-color 250ms cubic-bezier(0.4, 0, 0.2, 1), backdrop-filter 250ms cubic-bezier(0.4, 0, 0.2, 1)',
         }}
-        onClick={onClose}
+        onClick={handleAnimatedClose}
       />
 
       {/* Modal */}
@@ -666,8 +707,9 @@ export function CheckoutModal({
           alignItems: 'center',
           justifyContent: 'center',
           padding: '1rem',
+          pointerEvents: isClosing ? 'none' : 'auto',
         }}
-        onClick={onClose}
+        onClick={handleAnimatedClose}
       >
         <div
           style={{
@@ -677,6 +719,9 @@ export function CheckoutModal({
             borderRadius: '1rem',
             overflow: 'hidden',
             boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+            opacity: isModalVisible && !isClosing ? 1 : 0,
+            transform: isModalVisible && !isClosing ? 'translateY(0) scale(1)' : 'translateY(-20px) scale(0.98)',
+            transition: 'opacity 200ms cubic-bezier(0.4, 0, 0.2, 1), transform 250ms cubic-bezier(0.4, 0, 0.2, 1)',
           }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -730,7 +775,7 @@ export function CheckoutModal({
                 </button>
               )}
               <button
-                onClick={onClose}
+                onClick={handleAnimatedClose}
                 style={{
                   padding: '0.375rem 0.75rem',
                   fontSize: '0.8125rem',
