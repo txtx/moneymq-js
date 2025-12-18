@@ -218,22 +218,16 @@ export const moneymq = (options: MoneyMQPluginOptions) => {
           const { metric, startDate, endDate, includeBilled } = ctx.query ?? {};
 
           // Build query conditions
-          const where: Array<{ field: string; value: unknown; operator?: string }> = [
+          const where = [
             { field: 'userId', value: user.id },
+            ...(metric ? [{ field: 'metric', value: metric }] : []),
+            ...(includeBilled !== 'true' ? [{ field: 'billed', value: false }] : []),
           ];
-
-          if (metric) {
-            where.push({ field: 'metric', value: metric });
-          }
-
-          if (includeBilled !== 'true') {
-            where.push({ field: 'billed', value: false });
-          }
 
           // Get records
           const records = await ctx.context.adapter.findMany<UsageRecord>({
             model: usageTableName,
-            where,
+            where: where as Parameters<typeof ctx.context.adapter.findMany>[0]['where'],
           });
 
           // Filter by date if provided
@@ -323,14 +317,14 @@ export const moneymq = (options: MoneyMQPluginOptions) => {
           }
 
           // Get unbilled usage
-          const where: Array<{ field: string; value: unknown }> = [
+          const where = [
             { field: 'userId', value: user.id },
             { field: 'billed', value: false },
           ];
 
           const records = await ctx.context.adapter.findMany<UsageRecord>({
             model: usageTableName,
-            where,
+            where: where as Parameters<typeof ctx.context.adapter.findMany>[0]['where'],
           });
 
           // Filter by requested metrics
@@ -584,11 +578,20 @@ export const moneymq = (options: MoneyMQPluginOptions) => {
           handler: async (ctx) => {
             if (!createCustomerOnSignUp) return;
 
-            const response = ctx.response;
+            // Better Auth hook context types are incomplete - use type assertion
+            const hookCtx = ctx as unknown as {
+              response?: Response;
+              context: {
+                internalAdapter: { updateUser: (id: string, data: Record<string, unknown>) => Promise<void> };
+                logger: { error: (msg: string) => void };
+              };
+            };
+
+            const response = hookCtx.response;
             if (!response || !(response instanceof Response)) return;
 
             try {
-              const data = await response.clone().json();
+              const data = (await response.clone().json()) as { user?: { id: string; email: string; name?: string } };
               if (!data?.user) return;
 
               const user = data.user;
@@ -608,7 +611,7 @@ export const moneymq = (options: MoneyMQPluginOptions) => {
               const customer = await client.payment.customers.create(customerParams);
 
               // Update user with customer ID
-              await ctx.context.internalAdapter.updateUser(user.id, {
+              await hookCtx.context.internalAdapter.updateUser(user.id, {
                 moneymqCustomerId: customer.id,
               });
 
@@ -621,7 +624,7 @@ export const moneymq = (options: MoneyMQPluginOptions) => {
               }
             } catch {
               // Log but don't fail signup
-              ctx.context.logger.error('Failed to create MoneyMQ customer');
+              hookCtx.context.logger.error('Failed to create MoneyMQ customer');
             }
           },
         },

@@ -26,7 +26,11 @@
     "typecheck": "turbo run typecheck",
     "clean": "turbo run clean",
     "prepublishOnly": "pnpm build",
-    "version": "node scripts/sync-versions.js && git add packages/*/package.json"
+    "version": "node scripts/sync-versions.js && git add packages/*/package.json",
+    "release": "node scripts/release.js",
+    "release:patch": "node scripts/release.js patch",
+    "release:minor": "node scripts/release.js minor",
+    "release:major": "node scripts/release.js major"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
