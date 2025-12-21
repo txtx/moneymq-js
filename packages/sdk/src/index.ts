@@ -12,7 +12,13 @@ export type {
   ProductListParams,
   Price,
   PriceCreateParams,
+  PaymentRequirements,
+  ProductAccessResponse,
+  ProductAccessParams,
 } from './catalog';
+
+// Catalog errors
+export { PaymentRequiredError } from './catalog';
 
 // Payment types
 export type {
@@ -30,4 +36,17 @@ export type {
   PayoutListParams,
   PayoutSettings,
   PayoutSettingsUpdateParams,
+  // Simple payment types
+  PayParams,
+  PayResult,
+  // Payment intent types
+  PaymentIntent,
+  PaymentIntentCreateParams,
 } from './payment';
+
+// X402 types
+export type {
+  GetSignerParams,
+  Signer,
+  X402ClientConfig,
+} from './x402';

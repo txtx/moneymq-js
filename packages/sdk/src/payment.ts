@@ -65,6 +65,66 @@ export interface PaymentListParams {
   startingAfter?: string;
 }
 
+// Simple pay params - for one-liner payments
+export interface PayParams {
+  /** Amount in smallest currency unit (e.g., cents for USD) */
+  amount: number;
+  /** Currency code (e.g., 'usd', 'usdc') */
+  currency: string;
+  /** Product name for display */
+  productName: string;
+  /** Product ID for tracking */
+  productId?: string;
+  /** Optional product description */
+  description?: string;
+  /** Customer wallet address */
+  customer?: string;
+  /** Additional metadata */
+  metadata?: Record<string, string>;
+}
+
+export interface PayResult {
+  /** Checkout session ID */
+  sessionId: string;
+  /** Payment intent ID */
+  paymentIntentId: string;
+  /** Client secret for confirming payment */
+  clientSecret: string;
+  /** Total amount in smallest currency unit */
+  amount: number;
+  /** Currency */
+  currency: string;
+  /** Status */
+  status: 'requires_confirmation' | 'succeeded' | 'failed';
+}
+
+// Payment Intent types (simpler than checkout sessions)
+export interface PaymentIntent {
+  id: string;
+  object: 'payment_intent';
+  amount: number;
+  currency: string;
+  status: 'requires_payment_method' | 'requires_confirmation' | 'processing' | 'succeeded' | 'canceled';
+  customer?: string;
+  description?: string;
+  metadata: Record<string, string>;
+  clientSecret?: string;
+  created: number;
+}
+
+export interface PaymentIntentCreateParams {
+  /** Amount in smallest currency unit */
+  amount: number;
+  /** Currency code */
+  currency: string;
+  /** Customer wallet address */
+  customer?: string;
+  /** Description */
+  description?: string;
+  /** Metadata including product info */
+  metadata?: Record<string, string>;
+}
+
 export interface Customer {
   id: string;
   object: 'customer';
@@ -325,13 +385,58 @@ class WebhooksAPI {
 }
 
 /**
+ * Payment Intents API - for direct payments without full checkout flow
+ * Similar to Stripe's Payment Intents API
+ */
+class PaymentIntentsAPI {
+  private request: ReturnType<typeof createRequester>;
+
+  constructor(config: MoneyMQConfig) {
+    this.request = createRequester(config);
+  }
+
+  /**
+   * Create a payment intent
+   * Use this for simple payments without the full checkout session flow
+   */
+  async create(params: PaymentIntentCreateParams): Promise<PaymentIntent> {
+    return this.request('POST', '/catalog/v1/payment_intents', params);
+  }
+
+  /**
+   * Retrieve a payment intent
+   */
+  async retrieve(id: string): Promise<PaymentIntent> {
+    return this.request('GET', `/catalog/v1/payment_intents/${id}`);
+  }
+
+  /**
+   * Confirm a payment intent
+   * This triggers the actual payment (and x402 flow if required)
+   */
+  async confirm(id: string): Promise<PaymentIntent> {
+    return this.request('POST', `/catalog/v1/payment_intents/${id}/confirm`, {});
+  }
+
+  /**
+   * Cancel a payment intent
+   */
+  async cancel(id: string): Promise<PaymentIntent> {
+    return this.request('POST', `/catalog/v1/payment_intents/${id}/cancel`, {});
+  }
+}
+
+/**
  * Payment API for checkout, links, customers, and payouts
  */
 export class PaymentAPI {
   private request: ReturnType<typeof createRequester>;
 
-  /** Checkout sessions API */
+  /** Checkout sessions API - for full e-commerce flows with line items */
   public readonly checkout: CheckoutAPI;
+
+  /** Payment intents API - for simpler direct payments */
+  public readonly intents: PaymentIntentsAPI;
 
   /** Payment links API */
   public readonly links: LinksAPI;
@@ -348,10 +453,66 @@ export class PaymentAPI {
   constructor(config: MoneyMQConfig) {
     this.request = createRequester(config);
     this.checkout = new CheckoutAPI(config);
+    this.intents = new PaymentIntentsAPI(config);
     this.links = new LinksAPI(config);
     this.customers = new CustomersAPI(config);
     this.payouts = new PayoutsAPI(config);
     this.webhooks = new WebhooksAPI(config);
+  }
+
+  /**
+   * Simple one-liner payment - creates a checkout session with inline product data
+   *
+   * @example
+   * ```ts
+   * const result = await moneymq.payment.pay({
+   *   amount: 999,
+   *   currency: 'usd',
+   *   productName: 'Pro Plan',
+   *   productId: 'pro-plan',
+   *   customer: 'wallet_address',
+   * });
+   * ```
+   */
+  async pay(params: PayParams): Promise<PayResult> {
+    // Create a checkout session with inline price_data
+    const session = await this.request<{
+      id: string;
+      payment_intent: string;
+      client_secret: string;
+      amount_total: number;
+      currency: string;
+      status: string;
+    }>('POST', '/catalog/v1/checkout/sessions', {
+      line_items: [
+        {
+          price_data: {
+            currency: params.currency,
+            unit_amount: params.amount,
+            product_data: {
+              name: params.productName,
+              description: params.description,
+              metadata: {
+                product_id: params.productId || params.productName.toLowerCase().replace(/\s+/g, '-'),
+              },
+            },
+          },
+          quantity: 1,
+        },
+      ],
+      customer: params.customer,
+      metadata: params.metadata,
+      mode: 'payment',
+    });
+
+    return {
+      sessionId: session.id,
+      paymentIntentId: session.payment_intent,
+      clientSecret: session.client_secret,
+      amount: session.amount_total,
+      currency: session.currency,
+      status: 'requires_confirmation',
+    };
   }
 
   /**

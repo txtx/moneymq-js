@@ -36,9 +36,18 @@
   ],
   "author": "MoneyMQ",
   "license": "MIT",
+  "peerDependencies": {
+    "x402-fetch": "^0.7.0"
+  },
+  "peerDependenciesMeta": {
+    "x402-fetch": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@types/node": "^20",
     "tsup": "^8.0.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "x402-fetch": "^0.7.0"
   }
 }

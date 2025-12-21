@@ -43,18 +43,23 @@ async function makeRequestWith402Handling(
   body: Record<string, unknown> | undefined,
   secretKeyHex: string,
   rpcUrl: string,
-  headers: Record<string, string> = {}
+  headers: Record<string, string> = {},
+  useJson: boolean = false
 ): Promise<unknown> {
   console.log(`[MoneyMQ] Making ${method} request to ${url}`);
-  const formData = body ? encodeFormData(body) : undefined;
+
+  const contentType = useJson ? 'application/json' : 'application/x-www-form-urlencoded';
+  const requestBody = body
+    ? (useJson ? JSON.stringify(body) : encodeFormData(body))
+    : undefined;
 
   let response = await fetch(url, {
     method,
     headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
+      'Content-Type': contentType,
       ...headers,
     },
-    body: formData,
+    body: requestBody,
   });
 
   let data = await response.json();
@@ -64,7 +69,8 @@ async function makeRequestWith402Handling(
   if (response.status === 402) {
     console.log('[MoneyMQ] 💳 402 Payment Required - processing payment...');
 
-    const paymentRequirements = data?.payment_requirements || data?.error?.payment_requirements || [];
+    // Use x402 standard format (accepts), with fallback for legacy formats
+    const paymentRequirements = data?.accepts || data?.payment_requirements || data?.error?.payment_requirements || [];
 
     if (paymentRequirements.length === 0) {
       console.warn('[MoneyMQ] ⚠️  No payment requirements found in 402 response');
@@ -107,11 +113,11 @@ async function makeRequestWith402Handling(
     response = await fetch(url, {
       method,
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Type': contentType,
         'X-Payment': paymentHeaderValue,
         ...headers,
       },
-      body: formData,
+      body: requestBody,
     });
 
     data = await response.json();
@@ -127,7 +133,23 @@ async function makeRequestWith402Handling(
   return data;
 }
 
-// Create and confirm payment intent for sandbox accounts
+// Checkout session response type
+interface CheckoutSession {
+  id: string;
+  payment_intent: string;
+  client_secret: string;
+  status: string;
+  line_items: {
+    data: Array<{
+      id: string;
+      price: {
+        product: string;
+      };
+    }>;
+  };
+}
+
+// Create and confirm checkout session for sandbox accounts (Stripe approach)
 async function createSandboxPayment(
   apiUrl: string,
   rpcUrl: string,
@@ -138,37 +160,52 @@ async function createSandboxPayment(
   secretKeyHex: string,
   lineItems?: LineItem[]
 ): Promise<string> {
-  console.log('[MoneyMQ] Creating sandbox payment...', { amount, currency, recipient, senderAddress });
+  console.log('[MoneyMQ] Creating checkout session...', { amount, currency, recipient, senderAddress });
 
-  // Build description from line items
-  const description = lineItems && lineItems.length > 0
-    ? `Purchase - ${lineItems.map(item => item.product.name).join(', ')}`
-    : 'Payment';
+  // Build line_items array in Stripe Checkout format
+  const checkoutLineItems = lineItems?.map(item => ({
+    price_data: {
+      currency: item.price.currency.toLowerCase(),
+      unit_amount: item.price.unit_amount,
+      product_data: {
+        name: item.product.name,
+        description: item.product.description || undefined,
+        metadata: {
+          product_id: item.product.id,
+        },
+      },
+    },
+    quantity: item.quantity,
+  })) || [];
 
-  // Step 1: Create payment intent
-  const paymentIntent = await makeRequestWith402Handling(
-    `${apiUrl}/catalog/v1/payment_intents`,
+  // Step 1: Create checkout session (this creates the payment intent internally)
+  // Note: Checkout sessions require JSON, not form-encoded data
+  const checkoutSession = await makeRequestWith402Handling(
+    `${apiUrl}/catalog/v1/checkout/sessions`,
     'POST',
     {
-      amount: Math.round(amount * 100), // Convert to cents (Stripe-style)
-      currency: currency.toLowerCase(),
+      line_items: checkoutLineItems,
       customer: senderAddress,
-      description,
       metadata: {
         sender_address: senderAddress,
         recipient_address: recipient,
       },
+      mode: 'payment',
     },
     secretKeyHex,
-    rpcUrl
-  ) as { id: string };
+    rpcUrl,
+    {},
+    true // useJson
+  ) as CheckoutSession;
 
-  console.log('[MoneyMQ] Payment intent created:', paymentIntent);
+  console.log('[MoneyMQ] Checkout session created:', checkoutSession);
 
-  // Step 2: Confirm payment intent
-  console.log('[MoneyMQ] Confirming payment intent:', paymentIntent.id);
+  // Step 2: Confirm the underlying payment intent
+  const paymentIntentId = checkoutSession.payment_intent;
+  console.log('[MoneyMQ] Confirming payment intent:', paymentIntentId);
+
   const confirmedIntent = await makeRequestWith402Handling(
-    `${apiUrl}/catalog/v1/payment_intents/${paymentIntent.id}/confirm`,
+    `${apiUrl}/catalog/v1/payment_intents/${paymentIntentId}/confirm`,
     'POST',
     {},
     secretKeyHex,

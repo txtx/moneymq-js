@@ -1,5 +1,6 @@
 import { CatalogAPI } from './catalog';
 import { PaymentAPI } from './payment';
+import { X402API } from './x402';
 
 /**
  * Configuration options for the MoneyMQ client
@@ -65,6 +66,14 @@ export class MoneyMQ {
   /** Payment API for checkout, links, customers, and payouts */
   public readonly payment: PaymentAPI;
 
+  /** X402 API for agentic payments */
+  public readonly x402: X402API;
+
+  /** MoneyMQ API endpoint */
+  get endpoint(): string {
+    return this.config.endpoint;
+  }
+
   constructor(config: MoneyMQConfig) {
     this.config = {
       timeout: 30000,
@@ -73,6 +82,7 @@ export class MoneyMQ {
 
     this.catalog = new CatalogAPI(this.config);
     this.payment = new PaymentAPI(this.config);
+    this.x402 = new X402API(this.config);
   }
 
   /**
