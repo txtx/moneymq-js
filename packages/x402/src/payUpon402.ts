@@ -50,8 +50,6 @@ export async function payUpon402<T>(
 
     if (!is402) throw error;
 
-    console.log('💳 402 Payment Required - processing payment...');
-
     if (!isFunction) {
       console.warn(
         '⚠️  Cannot retry - promise already executed. Use () => syntax for retry support.',
@@ -136,8 +134,6 @@ export async function payUpon402<T>(
           );
         }
 
-        console.log(`💰 Creating payment for ${selectedPaymentRequirement.network}...`);
-
         // Create payment header using Coinbase x402 library
         paymentHeaderValue = await createPaymentHeader(
           walletClient,
@@ -146,8 +142,6 @@ export async function payUpon402<T>(
           config,
         );
       }
-
-      console.log('✅ Payment header created, retrying request...');
 
       // Retry the request - this is simplified, real implementation would
       // need to inject the X-PAYMENT header into the original request

@@ -50,3 +50,34 @@ export type {
   Signer,
   X402ClientConfig,
 } from './x402';
+
+// Events (SSE)
+export {
+  EventStream,
+  createEventStream,
+  isPaymentVerificationSucceeded,
+  isPaymentVerificationFailed,
+  isPaymentSettlementSucceeded,
+  isPaymentSettlementFailed,
+  parseCloudEvent,
+  buildEventStreamUrl,
+} from './events';
+
+export type {
+  CloudEventEnvelope,
+  PaymentFlow,
+  PaymentVerificationSucceededData,
+  PaymentVerificationFailedData,
+  PaymentSettlementSucceededData,
+  PaymentSettlementFailedData,
+  MoneyMQEventType,
+  MoneyMQEventMap,
+  PaymentVerificationEvent,
+  PaymentSettlementEvent,
+  PaymentEvent,
+  EventStreamOptions,
+  EventStreamState,
+  EventHandler,
+  ErrorHandler,
+  StateHandler,
+} from './events';

@@ -1,6 +1,7 @@
 import { CatalogAPI } from './catalog';
 import { PaymentAPI } from './payment';
 import { X402API } from './x402';
+import { EventStream, EventStreamOptions } from './events';
 
 /**
  * Configuration options for the MoneyMQ client
@@ -69,6 +70,25 @@ export class MoneyMQ {
   /** X402 API for agentic payments */
   public readonly x402: X402API;
 
+  /** Events API for real-time SSE streams */
+  public readonly events: {
+    /**
+     * Create a new event stream connection
+     *
+     * @example
+     * ```typescript
+     * const stream = moneymq.events.stream({ last: 10 });
+     *
+     * stream.on('payment', (event) => {
+     *   console.log('Payment event:', event.type);
+     * });
+     *
+     * stream.connect();
+     * ```
+     */
+    stream: (options?: EventStreamOptions) => EventStream;
+  };
+
   /** MoneyMQ API endpoint */
   get endpoint(): string {
     return this.config.endpoint;
@@ -83,6 +103,9 @@ export class MoneyMQ {
     this.catalog = new CatalogAPI(this.config);
     this.payment = new PaymentAPI(this.config);
     this.x402 = new X402API(this.config);
+    this.events = {
+      stream: (options?: EventStreamOptions) => new EventStream(this.config.endpoint, options),
+    };
   }
 
   /**

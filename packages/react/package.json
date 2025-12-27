@@ -44,6 +44,7 @@
   },
   "dependencies": {
     "@headlessui/react": "^2.2.0",
+    "@moneymq/sdk": "workspace:*",
     "@solana/wallet-adapter-base": "^0.9.25",
     "@solana/wallet-adapter-react": "^0.15.39",
     "@solana/wallet-adapter-wallets": "^0.19.35",

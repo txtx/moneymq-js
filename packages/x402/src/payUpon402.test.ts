@@ -87,7 +87,6 @@ describe('payUpon402', () => {
 
       const result = await payUpon402(fn);
 
-      expect(console.log).toHaveBeenCalledWith('💳 402 Payment Required - processing payment...');
       expect(result).toEqual({ data: 'success' });
     });
 
@@ -362,7 +361,6 @@ describe('payUpon402', () => {
 
       expect(fn).toHaveBeenCalledTimes(2);
       expect(result).toEqual({ data: 'paid content' });
-      expect(console.log).toHaveBeenCalledWith('✅ Payment header created, retrying request...');
     });
 
     it('should create mock payment header when no wallet client', async () => {

@@ -52,8 +52,6 @@ export function createStripeClient(
 
     // Check if this is a 402 Payment Required response
     if (statusCode === 402) {
-      console.log('💳 402 Payment Required - processing payment...');
-
       // Parse the response body to get payment requirements
       const responseBody = (await response.toJSON()) as any;
       console.log('📄 Response body:', JSON.stringify(responseBody, null, 2));
@@ -88,8 +86,6 @@ export function createStripeClient(
           'exact',
         );
 
-        console.log(`💰 Creating payment for ${selectedPaymentRequirement.network}...`);
-
         // Extract the appropriate signer for the network
         let signer: Signer;
         if ('svm' in walletClient) {
@@ -117,8 +113,6 @@ export function createStripeClient(
           effectiveX402Config,
         );
       }
-
-      console.log('✅ Payment header created, retrying request...');
 
       // Retry with X-Payment header
       const headersWithPayment = {
