@@ -1,9 +1,8 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
-import { PhantomWalletAdapter, SolflareWalletAdapter } from '@solana/wallet-adapter-wallets';
-import { CustomWalletModalProvider, type Branding } from './wallet-modal-provider';
+import { AppProvider, getDefaultConfig } from '@solana/connector';
+import type { Branding } from './wallet-modal-provider';
 
 // MoneyMQ client interface (matches @moneymq/sdk)
 export interface MoneyMQClient {
@@ -16,6 +15,8 @@ export interface MoneyMQProviderProps {
   children: React.ReactNode;
   client: MoneyMQClient;
   branding?: Branding;
+  /** Set to true if the parent app already provides wallet connection (AppProvider) */
+  skipWalletProvider?: boolean;
 }
 
 // Sandbox account interface
@@ -224,11 +225,11 @@ export function MoneyMQProvider({
     initialize();
   }, [client.config.endpoint]);
 
-  const wallets = useMemo(
-    () => [
-      new PhantomWalletAdapter(),
-      new SolflareWalletAdapter(),
-    ],
+  const connectorConfig = useMemo(
+    () => getDefaultConfig({
+      appName: 'MoneyMQ Checkout',
+      autoConnect: true,
+    }),
     []
   );
 
@@ -237,21 +238,12 @@ export function MoneyMQProvider({
     [isSandboxMode, sandboxAccounts]
   );
 
-  // Don't render until we have the RPC endpoint
-  if (!rpcEndpoint) {
-    return null;
-  }
-
   return (
     <MoneyMQContext.Provider value={client}>
       <SandboxContext.Provider value={sandboxContextValue}>
-        <ConnectionProvider endpoint={rpcEndpoint}>
-          <WalletProvider wallets={wallets} autoConnect>
-            <CustomWalletModalProvider branding={branding}>
-              {children}
-            </CustomWalletModalProvider>
-          </WalletProvider>
-        </ConnectionProvider>
+        <AppProvider connectorConfig={connectorConfig}>
+          {children}
+        </AppProvider>
       </SandboxContext.Provider>
     </MoneyMQContext.Provider>
   );

@@ -1,11 +1,9 @@
 'use client';
 
 import React, { useCallback, useState, useEffect, useRef } from 'react';
-import { useWallet } from '@solana/wallet-adapter-react';
-import type { Wallet } from '@solana/wallet-adapter-react';
-import { Menu, MenuButton, MenuItem, MenuItems } from '@headlessui/react';
-import Lottie, { type LottieRefCurrentProps } from 'lottie-react';
-import { useBranding } from './wallet-modal-provider';
+import { createPortal } from 'react-dom';
+import { useConnector, useAccount } from '@solana/connector';
+import { DotLottieReact, type DotLottie } from '@lottiefiles/dotlottie-react';
 import { useMoneyMQ, useSandbox, type SandboxAccount } from './provider';
 import logoAnimation from './assets/logo-animation.json';
 import {
@@ -14,6 +12,9 @@ import {
   type PaymentSettlementSucceededData,
   type CloudEventEnvelope,
 } from '@moneymq/sdk';
+
+// Wallet type for connector
+type ConnectorWallet = ReturnType<typeof useConnector>['wallets'][number];
 
 // Helper to convert object to form-encoded data
 function encodeFormData(data: Record<string, unknown>): string {
@@ -250,18 +251,18 @@ function waitForSettlementEvent(
     }, timeoutMs);
 
     stream.on('payment', (event) => {
-      console.log('[MoneyMQ] Received payment event:', event.type);
+      console.log('[MoneyMQ] Received payment event:', event.type, event.data);
 
       if (isPaymentSettlementSucceeded(event)) {
-        // Check if this event matches our payment flow (checkout with this intent_id)
-        const { payment_flow } = event.data;
-        if (payment_flow.type === 'checkout' && payment_flow.intent_id === paymentIntentId) {
-          console.log('[MoneyMQ] Settlement event matched for intent:', paymentIntentId);
-          settled = true;
-          clearTimeout(timeout);
-          stream.disconnect();
-          resolve(event);
-        }
+        // Accept any settlement event - the backend currently sends PaymentFlow::X402
+        // for all payments including checkout flows, so we can't match on intent_id.
+        // In sandbox mode, there's typically only one payment at a time.
+        // TODO: Update backend to emit PaymentFlow::Checkout with intent_id for checkout flows
+        console.log('[MoneyMQ] Settlement event received');
+        settled = true;
+        clearTimeout(timeout);
+        stream.disconnect();
+        resolve(event);
       }
     });
 
@@ -279,7 +280,7 @@ type PaymentMethodType = 'browser_extension' | 'sandbox_account';
 
 interface SelectedPaymentMethod {
   type: PaymentMethodType;
-  wallet?: Wallet;
+  wallet?: ConnectorWallet;
   sandboxAccount?: SandboxAccount;
 }
 
@@ -349,8 +350,8 @@ export interface CheckoutModalProps {
   recipient: string;
   /** Optional line items to display in the checkout summary */
   lineItems?: LineItem[];
-  /** Callback fired when payment completes. Receives the transaction signature. */
-  onSuccess?: (signature: string) => void;
+  /** Callback fired when payment completes. Receives the full payment settlement event. */
+  onSuccess?: (event: CloudEventEnvelope<PaymentSettlementSucceededData>) => void;
   /** Callback fired when payment fails. Receives the Error with failure details. */
   onError?: (error: Error) => void;
   /** Accent color for UI elements. @default "#ec4899" */
@@ -424,28 +425,35 @@ export function CheckoutModal({
   accentColor = '#ec4899',
   debug = false,
 }: CheckoutModalProps) {
+  // SSR protection - don't render portal on server
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const [isSending, setIsSending] = useState(false);
   const [copiedSender, setCopiedSender] = useState(false);
   const [copiedRecipient, setCopiedRecipient] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
   const [accountBalance, setAccountBalance] = useState<number | null>(null);
-  const [selectedWallet, setSelectedWallet] = useState<Wallet | null>(null);
+  const [pendingWallet, setPendingWallet] = useState<ConnectorWallet | null>(null);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<SelectedPaymentMethod | null>(
     null,
   );
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const {
-    publicKey,
-    connected,
-    disconnect,
     wallets,
     select,
-    wallet: connectedWallet,
-  } = useWallet();
-  const branding = useBranding();
+    disconnect,
+    connected,
+    selectedWallet,
+  } = useConnector();
+  const { address: publicKeyString } = useAccount();
+  const publicKey = publicKeyString ? { toBase58: () => publicKeyString, toString: () => publicKeyString } : null;
+  const connectedWallet = selectedWallet ? wallets.find(w => w.wallet.name === selectedWallet.name) || null : null;
   const { isSandboxMode, sandboxAccounts } = useSandbox();
   const client = useMoneyMQ();
-  const lottieRef = useRef<LottieRefCurrentProps | null>(null);
 
   // Animation states
   const [shouldRender, setShouldRender] = useState(false);
@@ -486,6 +494,18 @@ export function CheckoutModal({
     }, 300);
   }, [onClose, animationPhase]);
 
+  // Handle ESC key to close modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && visible) {
+        handleAnimatedClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [visible, handleAnimatedClose]);
+
   const copyToClipboard = (text: string, type: 'sender' | 'recipient') => {
     navigator.clipboard.writeText(text);
     if (type === 'sender') {
@@ -497,34 +517,32 @@ export function CheckoutModal({
     }
   };
 
-  const handleSelectWallet = (wallet: Wallet) => {
-    setSelectedWallet(wallet);
+  const handleSelectWallet = (wallet: ConnectorWallet) => {
+    setPendingWallet(wallet);
     setSelectedPaymentMethod({ type: 'browser_extension', wallet });
-    select(wallet.adapter.name);
+    select(wallet.wallet.name);
   };
 
   const handleSelectSandboxAccount = (account: SandboxAccount) => {
     setSelectedPaymentMethod({ type: 'sandbox_account', sandboxAccount: account });
-    setSelectedWallet(null);
+    setPendingWallet(null);
   };
 
   const handleDisconnect = async () => {
     await disconnect();
-    setSelectedWallet(null);
+    setPendingWallet(null);
     setSelectedPaymentMethod(null);
   };
 
-  // Filter to only show installed/detected wallets
-  const availableWallets = wallets.filter(
-    (wallet) => wallet.readyState === 'Installed' || wallet.readyState === 'Loadable',
-  );
+  // All wallets from connector are available (Wallet Standard)
+  const availableWallets = wallets;
 
   // Limit sandbox accounts to first 3
   const displayedSandboxAccounts = sandboxAccounts.slice(0, 3);
 
   // Get the current wallet icon (connected wallet, selected wallet, or default)
-  const currentWalletIcon = connectedWallet?.adapter.icon || selectedWallet?.adapter.icon;
-  const currentWalletName = connectedWallet?.adapter.name || selectedWallet?.adapter.name;
+  const currentWalletIcon = connectedWallet?.wallet.icon || selectedWallet?.icon || pendingWallet?.wallet.icon;
+  const currentWalletName = connectedWallet?.wallet.name || selectedWallet?.name || pendingWallet?.wallet.name;
 
   // Get current selection display info
   const getCurrentSelectionDisplay = () => {
@@ -667,17 +685,17 @@ export function CheckoutModal({
         console.log('[MoneyMQ] Payment confirmed, waiting for settlement event...');
         const settlementEvent = await waitForSettlementEvent(apiUrl, paymentIntentId);
 
-        // Extract transaction signature from event
-        const signature = settlementEvent.data.transaction_signature || paymentIntentId;
-
         setIsSending(false);
-        onSuccess?.(signature);
+        onSuccess?.(settlementEvent);
         onClose();
         return;
       }
 
       // For browser extension wallets, dispatch event for external handling
-      const event = new CustomEvent('moneymq:payment-initiated', {
+      // The app should handle the payment via x402 middleware which will emit a settlement event
+      const apiUrl = normalizeRpcUrl(client.config.endpoint);
+
+      const customEvent = new CustomEvent('moneymq:payment-initiated', {
         detail: {
           amount,
           currency,
@@ -687,37 +705,14 @@ export function CheckoutModal({
         },
         bubbles: true,
       });
-      window.dispatchEvent(event);
+      window.dispatchEvent(customEvent);
 
-      const signature = await new Promise<string>((resolve, reject) => {
-        const handleSuccess = (e: Event) => {
-          const customEvent = e as CustomEvent<{ signature: string }>;
-          cleanup();
-          resolve(customEvent.detail.signature);
-        };
-
-        const handleError = (e: Event) => {
-          const customEvent = e as CustomEvent<Error>;
-          cleanup();
-          reject(customEvent.detail);
-        };
-
-        const cleanup = () => {
-          window.removeEventListener('moneymq:payment-success', handleSuccess);
-          window.removeEventListener('moneymq:payment-error', handleError);
-        };
-
-        window.addEventListener('moneymq:payment-success', handleSuccess);
-        window.addEventListener('moneymq:payment-error', handleError);
-
-        setTimeout(() => {
-          cleanup();
-          reject(new Error('Payment timeout'));
-        }, 60000);
-      });
+      // Wait for settlement event via SSE (payment goes through x402 middleware)
+      console.log('[MoneyMQ] Browser extension payment initiated, waiting for settlement event...');
+      const settlementEvent = await waitForSettlementEvent(apiUrl, 'browser_extension');
 
       setIsSending(false);
-      onSuccess?.(signature);
+      onSuccess?.(settlementEvent);
       onClose();
     } catch (err) {
       console.error('Payment failed:', err);
@@ -743,19 +738,30 @@ export function CheckoutModal({
     recipient &&
     !isSending;
 
-  // Play Lottie animation every 3 seconds when canPay is true
+  const dotLottieRef = useRef<DotLottie | null>(null);
+
+  // Control Lottie animation - play every 3s when canPay
   useEffect(() => {
-    if (!canPay || !visible) return;
+    if (!dotLottieRef.current) return;
 
-    // Play immediately when canPay becomes true
-    lottieRef.current?.goToAndPlay(0, true);
+    if (canPay) {
+      // Play immediately, then every 3 seconds
+      dotLottieRef.current.setFrame(0);
+      dotLottieRef.current.play();
+      const interval = setInterval(() => {
+        if (dotLottieRef.current) {
+          dotLottieRef.current.setFrame(0);
+          dotLottieRef.current.play();
+        }
+      }, 3000);
+      return () => clearInterval(interval);
+    } else {
+      dotLottieRef.current.stop();
+    }
+  }, [canPay]);
 
-    const interval = setInterval(() => {
-      lottieRef.current?.goToAndPlay(0, true);
-    }, 3000);
-
-    return () => clearInterval(interval);
-  }, [canPay, visible]);
+  // SSR check - document not available on server
+  if (typeof document === 'undefined') return null;
 
   if (!shouldRender) return null;
 
@@ -856,7 +862,12 @@ export function CheckoutModal({
   const isModalVisible = animationPhase === 'open';
   const isClosing = animationPhase === 'closing';
 
-  return (
+  // SSR protection - don't render until mounted on client
+  if (!mounted) {
+    return null;
+  }
+
+  return createPortal(
     <>
       <style>{`
         @keyframes spin {
@@ -870,7 +881,7 @@ export function CheckoutModal({
         style={{
           position: 'fixed',
           inset: 0,
-          zIndex: 9998,
+          zIndex: 99998,
           backgroundColor:
             isBackdropVisible && !isClosing ? 'rgba(0, 0, 0, 0.6)' : 'rgba(0, 0, 0, 0)',
           backdropFilter: isBackdropVisible && !isClosing ? 'blur(8px)' : 'blur(0px)',
@@ -885,7 +896,7 @@ export function CheckoutModal({
         style={{
           position: 'fixed',
           inset: 0,
-          zIndex: 9999,
+          zIndex: 99999,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -900,7 +911,7 @@ export function CheckoutModal({
             maxWidth: '380px',
             backgroundColor: '#2c2c2e',
             borderRadius: '1rem',
-            overflow: 'hidden',
+            overflow: 'visible',
             boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
             opacity: isModalVisible && !isClosing ? 1 : 0,
             transform:
@@ -923,15 +934,7 @@ export function CheckoutModal({
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              {branding?.logo ? (
-                <img
-                  src={branding.logo}
-                  alt="Logo"
-                  style={{ height: '24px', width: 'auto', filter: 'invert(1)' }}
-                />
-              ) : (
-                <MoneyMQLogo />
-              )}
+              <MoneyMQLogo />
               {isSandboxMode && (
                 <span
                   style={{
@@ -982,7 +985,7 @@ export function CheckoutModal({
                   cursor: 'pointer',
                 }}
               >
-                cancel
+                Cancel
               </button>
             </div>
           </div>
@@ -1090,8 +1093,10 @@ export function CheckoutModal({
                 </div>
               </div>
             ) : (
-              <Menu as="div" style={{ position: 'relative', marginBottom: '0.5rem' }}>
-                <MenuButton
+              <div style={{ position: 'relative', marginBottom: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsDropdownOpen(!isDropdownOpen)}
                   style={{
                     width: '100%',
                     backgroundColor: '#3a3a3c',
@@ -1142,7 +1147,7 @@ export function CheckoutModal({
                         color: '#0a84ff',
                       }}
                     >
-                      {selectedWallet ? selectedWallet.adapter.name : 'Connect Wallet'}
+                      {selectedWallet ? selectedWallet.name : 'Connect Wallet'}
                     </span>
                   </div>
                   {/* ChevronUpDownIcon */}
@@ -1159,159 +1164,40 @@ export function CheckoutModal({
                       clipRule="evenodd"
                     />
                   </svg>
-                </MenuButton>
-                <MenuItems
-                  anchor="bottom start"
-                  style={{
-                    backgroundColor: '#2c2c2e',
-                    borderRadius: '0.75rem',
-                    padding: '0.25rem',
-                    boxShadow: '0 10px 25px rgba(0, 0, 0, 0.4)',
-                    zIndex: 10000,
-                    outline: 'none',
-                    border: '1px solid #48484a',
-                    maxHeight: '300px',
-                    overflowY: 'auto',
-                    width: 'var(--button-width)',
-                    marginTop: '0.25rem',
-                  }}
-                >
-                  {/* Sandbox Accounts Section */}
-                  {isSandboxMode && displayedSandboxAccounts.length > 0 && (
-                    <>
-                      {displayedSandboxAccounts.map((account) => (
-                        <MenuItem key={account.id}>
-                          {({ focus }) => (
-                            <button
-                              onClick={() => handleSelectSandboxAccount(account)}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '0.75rem',
-                                padding: '0.875rem 1rem',
-                                backgroundColor: focus ? '#3a3a3c' : 'transparent',
-                                borderRadius: '0.5rem',
-                                border: 'none',
-                                cursor: 'pointer',
-                                width: '100%',
-                                textAlign: 'left',
-                                transition: 'background-color 150ms',
-                              }}
-                            >
-                              <div
-                                style={{
-                                  width: '40px',
-                                  height: '40px',
-                                  borderRadius: '0.5rem',
-                                  backgroundColor: '#636366',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  overflow: 'hidden',
-                                  flexShrink: 0,
-                                  color: '#fff',
-                                }}
-                              >
-                                <SandboxIcon />
-                              </div>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '0.375rem',
-                                    marginBottom: '0.125rem',
-                                  }}
-                                >
-                                  <span style={{ fontSize: '0.75rem', color: '#8e8e93' }}>
-                                    From {truncateAddress(account.address)}
-                                  </span>
-                                  <span
-                                    role="button"
-                                    tabIndex={0}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      navigator.clipboard.writeText(account.address);
-                                    }}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter' || e.key === ' ') {
-                                        e.stopPropagation();
-                                        navigator.clipboard.writeText(account.address);
-                                      }
-                                    }}
-                                    style={{
-                                      padding: 0,
-                                      background: 'none',
-                                      border: 'none',
-                                      cursor: 'pointer',
-                                      color: '#8e8e93',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                    }}
-                                  >
-                                    <svg
-                                      width="12"
-                                      height="12"
-                                      viewBox="0 0 24 24"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      strokeWidth="2"
-                                    >
-                                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                                      <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
-                                    </svg>
-                                  </span>
-                                </div>
-                                <span
-                                  style={{
-                                    fontSize: '0.9375rem',
-                                    fontWeight: 500,
-                                    color: '#fff',
-                                  }}
-                                >
-                                  {account.name.charAt(0).toUpperCase() + account.name.slice(1)}
-                                </span>
-                              </div>
-                              {account.usdcBalance !== undefined && (
-                                <span
-                                  style={{
-                                    fontSize: '0.6875rem',
-                                    color: '#ff9f0a',
-                                    backgroundColor: 'rgba(255, 159, 10, 0.15)',
-                                    padding: '0.25rem 0.5rem',
-                                    borderRadius: '0.25rem',
-                                    flexShrink: 0,
-                                  }}
-                                >
-                                  {account.usdcBalance.toLocaleString()} USDC
-                                </span>
-                              )}
-                            </button>
-                          )}
-                        </MenuItem>
-                      ))}
-                      {/* Divider between sandbox and browser extensions */}
-                      {availableWallets.length > 0 && (
-                        <div
-                          style={{ height: '1px', backgroundColor: '#48484a', margin: '0.25rem 0' }}
-                        />
-                      )}
-                    </>
-                  )}
-
-                  {/* Browser Extension Wallets Section */}
-                  {availableWallets.length > 0 ? (
-                    availableWallets.map((wallet) => (
-                      <MenuItem key={wallet.adapter.name}>
-                        {({ focus }) => (
+                </button>
+                {isDropdownOpen && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      backgroundColor: '#2c2c2e',
+                      borderRadius: '0.75rem',
+                      padding: '0.25rem',
+                      boxShadow: '0 10px 25px rgba(0, 0, 0, 0.4)',
+                      zIndex: 999999,
+                      outline: 'none',
+                      border: '1px solid #48484a',
+                      marginTop: '0.25rem',
+                    }}
+                  >
+                    {/* Sandbox Accounts Section */}
+                    {isSandboxMode && displayedSandboxAccounts.length > 0 && (
+                      <>
+                        {displayedSandboxAccounts.map((account) => (
                           <button
-                            onClick={() => handleSelectWallet(wallet)}
+                            key={account.id}
+                            onClick={() => {
+                              handleSelectSandboxAccount(account);
+                              setIsDropdownOpen(false);
+                            }}
                             style={{
                               display: 'flex',
                               alignItems: 'center',
                               gap: '0.75rem',
                               padding: '0.875rem 1rem',
-                              backgroundColor: focus ? '#3a3a3c' : 'transparent',
+                              backgroundColor: 'transparent',
                               borderRadius: '0.5rem',
                               border: 'none',
                               cursor: 'pointer',
@@ -1319,6 +1205,8 @@ export function CheckoutModal({
                               textAlign: 'left',
                               transition: 'background-color 150ms',
                             }}
+                            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#3a3a3c')}
+                            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                           >
                             <div
                               style={{
@@ -1331,31 +1219,23 @@ export function CheckoutModal({
                                 justifyContent: 'center',
                                 overflow: 'hidden',
                                 flexShrink: 0,
+                                color: '#fff',
                               }}
                             >
-                              {wallet.adapter.icon ? (
-                                <img
-                                  src={wallet.adapter.icon}
-                                  alt={wallet.adapter.name}
-                                  style={{
-                                    width: '40px',
-                                    height: '40px',
-                                    borderRadius: '0.5rem',
-                                  }}
-                                />
-                              ) : (
-                                <WalletIcon />
-                              )}
+                              <SandboxIcon />
                             </div>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div
                                 style={{
-                                  fontSize: '0.75rem',
-                                  color: '#8e8e93',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.375rem',
                                   marginBottom: '0.125rem',
                                 }}
                               >
-                                Browser Extension
+                                <span style={{ fontSize: '0.75rem', color: '#8e8e93' }}>
+                                  From {truncateAddress(account.address)}
+                                </span>
                               </div>
                               <span
                                 style={{
@@ -1364,41 +1244,137 @@ export function CheckoutModal({
                                   color: '#fff',
                                 }}
                               >
-                                {wallet.adapter.name}
+                                {account.name.charAt(0).toUpperCase() + account.name.slice(1)}
                               </span>
                             </div>
-                            {wallet.readyState === 'Installed' && (
+                            {account.usdcBalance !== undefined && (
                               <span
                                 style={{
                                   fontSize: '0.6875rem',
-                                  color: '#30d158',
-                                  backgroundColor: 'rgba(48, 209, 88, 0.15)',
+                                  color: '#ff9f0a',
+                                  backgroundColor: 'rgba(255, 159, 10, 0.15)',
                                   padding: '0.25rem 0.5rem',
                                   borderRadius: '0.25rem',
                                   flexShrink: 0,
                                 }}
                               >
-                                Detected
+                                {account.usdcBalance.toLocaleString()} USDC
                               </span>
                             )}
                           </button>
+                        ))}
+                        {/* Divider between sandbox and browser extensions */}
+                        {availableWallets.length > 0 && (
+                          <div
+                            style={{ height: '1px', backgroundColor: '#48484a', margin: '0.25rem 0' }}
+                          />
                         )}
-                      </MenuItem>
-                    ))
-                  ) : !isSandboxMode || displayedSandboxAccounts.length === 0 ? (
-                    <div
-                      style={{
-                        textAlign: 'center',
-                        padding: '1.5rem',
-                        color: '#8e8e93',
-                        fontSize: '0.875rem',
-                      }}
-                    >
-                      No wallets detected
-                    </div>
-                  ) : null}
-                </MenuItems>
-              </Menu>
+                      </>
+                    )}
+
+                    {/* Browser Extension Wallets Section */}
+                    {availableWallets.length > 0 ? (
+                      availableWallets.map((wallet) => (
+                        <button
+                          key={wallet.wallet.name}
+                          onClick={() => {
+                            handleSelectWallet(wallet);
+                            setIsDropdownOpen(false);
+                          }}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.75rem',
+                            padding: '0.875rem 1rem',
+                            backgroundColor: 'transparent',
+                            borderRadius: '0.5rem',
+                            border: 'none',
+                            cursor: 'pointer',
+                            width: '100%',
+                            textAlign: 'left',
+                            transition: 'background-color 150ms',
+                          }}
+                          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#3a3a3c')}
+                          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                        >
+                          <div
+                            style={{
+                              width: '40px',
+                              height: '40px',
+                              borderRadius: '0.5rem',
+                              backgroundColor: '#636366',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              overflow: 'hidden',
+                              flexShrink: 0,
+                            }}
+                          >
+                            {wallet.wallet.icon ? (
+                              <img
+                                src={wallet.wallet.icon}
+                                alt={wallet.wallet.name}
+                                style={{
+                                  width: '40px',
+                                  height: '40px',
+                                  borderRadius: '0.5rem',
+                                }}
+                              />
+                            ) : (
+                              <WalletIcon />
+                            )}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div
+                              style={{
+                                fontSize: '0.75rem',
+                                color: '#8e8e93',
+                                marginBottom: '0.125rem',
+                              }}
+                            >
+                              Browser Extension
+                            </div>
+                            <span
+                              style={{
+                                fontSize: '0.9375rem',
+                                fontWeight: 500,
+                                color: '#fff',
+                              }}
+                            >
+                              {wallet.wallet.name}
+                            </span>
+                          </div>
+                          {selectedWallet?.name === wallet.wallet.name && (
+                            <span
+                              style={{
+                                fontSize: '0.6875rem',
+                                color: '#30d158',
+                                backgroundColor: 'rgba(48, 209, 88, 0.15)',
+                                padding: '0.25rem 0.5rem',
+                                borderRadius: '0.25rem',
+                                flexShrink: 0,
+                              }}
+                            >
+                              Detected
+                            </span>
+                          )}
+                        </button>
+                      ))
+                    ) : !isSandboxMode || displayedSandboxAccounts.length === 0 ? (
+                      <div
+                        style={{
+                          textAlign: 'center',
+                          padding: '1.5rem',
+                          color: '#8e8e93',
+                          fontSize: '0.875rem',
+                        }}
+                      >
+                        No wallets detected
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+              </div>
             )}
           </div>
 
@@ -1635,9 +1611,11 @@ export function CheckoutModal({
                 </>
               ) : (
                 <>
-                  <Lottie
-                    lottieRef={lottieRef}
-                    animationData={logoAnimation}
+                  <DotLottieReact
+                    dotLottieRefCallback={(dotLottie) => {
+                      dotLottieRef.current = dotLottie;
+                    }}
+                    data={JSON.stringify(logoAnimation)}
                     loop={false}
                     autoplay={false}
                     style={{
@@ -1665,6 +1643,7 @@ export function CheckoutModal({
           </div>
         </div>
       </div>
-    </>
+    </>,
+    document.body
   );
 }

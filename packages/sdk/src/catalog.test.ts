@@ -17,6 +17,52 @@ describe('CatalogAPI', () => {
     global.fetch = originalFetch;
   });
 
+  describe('list (shorthand)', () => {
+    const mockProduct = {
+      id: 'prod_123',
+      object: 'product',
+      name: 'Test Product',
+      description: 'A test product',
+      active: true,
+      metadata: {},
+      created: Date.now(),
+      updated: Date.now(),
+    };
+
+    it('should list products using catalog.list()', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ data: [mockProduct], hasMore: false }),
+      });
+
+      const result = await client.catalog.list();
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:8488/catalog/v1/products',
+        expect.objectContaining({ method: 'GET' }),
+      );
+      expect(result.data).toHaveLength(1);
+      expect(result.hasMore).toBe(false);
+    });
+
+    it('should list products with filters using catalog.list()', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ data: [], hasMore: false }),
+      });
+
+      await client.catalog.list({
+        active: true,
+        limit: 10,
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:8488/catalog/v1/products?active=true&limit=10',
+        expect.any(Object),
+      );
+    });
+  });
+
   describe('products', () => {
     const mockProduct: Product = {
       id: 'prod_123',

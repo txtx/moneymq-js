@@ -51,7 +51,7 @@ export type {
   X402ClientConfig,
 } from './x402';
 
-// Events (SSE)
+// Events (SSE) - Legacy API (deprecated, use channels instead)
 export {
   EventStream,
   createEventStream,
@@ -81,3 +81,27 @@ export type {
   ErrorHandler,
   StateHandler,
 } from './events';
+
+// Channels (new API) - Reader, Actor, Receiver
+export {
+  EventReader,
+  EventActor,
+  EventReceiver,
+  ChannelError,
+  createEventReader,
+  createEventActor,
+  createEventReceiver,
+} from './channels';
+
+export type {
+  ChannelEvent,
+  ConnectionState,
+  ChannelEventHandler,
+  ConnectionHandler,
+  ChannelErrorHandler,
+  ReaderOptions,
+  ActorOptions,
+  ReceiverOptions,
+  Transaction,
+  TransactionHandler,
+} from './channels';

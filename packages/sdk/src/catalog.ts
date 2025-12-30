@@ -308,4 +308,52 @@ export class CatalogAPI {
     this.products = new ProductsAPI(config);
     this.prices = new PricesAPI(config);
   }
+
+  /**
+   * List all products in the catalog
+   * Shorthand for moneymq.catalog.products.list()
+   */
+  async list(params?: ProductListParams): Promise<{ data: Product[]; hasMore: boolean }> {
+    return this.products.list(params);
+  }
+
+  /**
+   * Create a new product
+   * Shorthand for moneymq.catalog.products.create()
+   */
+  async create(params: ProductCreateParams): Promise<Product> {
+    return this.products.create(params);
+  }
+
+  /**
+   * Retrieve a product by ID
+   * Shorthand for moneymq.catalog.products.retrieve()
+   */
+  async retrieve(id: string): Promise<Product> {
+    return this.products.retrieve(id);
+  }
+
+  /**
+   * Update a product
+   * Shorthand for moneymq.catalog.products.update()
+   */
+  async update(id: string, params: Partial<ProductCreateParams>): Promise<Product> {
+    return this.products.update(id, params);
+  }
+
+  /**
+   * Delete a product
+   * Shorthand for moneymq.catalog.products.delete()
+   */
+  async delete(id: string): Promise<{ deleted: boolean }> {
+    return this.products.delete(id);
+  }
+
+  /**
+   * Access a product - gated by x402 payment
+   * Shorthand for moneymq.catalog.products.access()
+   */
+  async access(id: string, params?: ProductAccessParams): Promise<ProductAccessResponse> {
+    return this.products.access(id, params);
+  }
 }

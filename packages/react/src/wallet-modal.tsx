@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useWallet } from '@solana/wallet-adapter-react';
-import type { Wallet } from '@solana/wallet-adapter-react';
+import { useConnector } from '@solana/connector';
+
+type ConnectorWallet = ReturnType<typeof useConnector>['wallets'][number];
 
 export interface WalletModalProps {
   visible: boolean;
@@ -129,30 +130,29 @@ const noWalletsStyle: React.CSSProperties = {
 };
 
 export function WalletModal({ visible, onClose, branding }: WalletModalProps) {
-  const { wallets, select, connecting } = useWallet();
+  const { wallets, select } = useConnector();
   const [hoveredWallet, setHoveredWallet] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState(false);
 
   const accentColor = branding?.accentColor || '#ec4899';
 
-  // Filter and sort wallets
+  // Sort wallets - connected first, then by name
   const sortedWallets = useMemo(() => {
-    const installed: Wallet[] = [];
-    const notInstalled: Wallet[] = [];
-
-    for (const wallet of wallets) {
-      if (wallet.readyState === 'Installed') {
-        installed.push(wallet);
-      } else if (wallet.readyState === 'Loadable' || wallet.readyState === 'NotDetected') {
-        notInstalled.push(wallet);
-      }
-    }
-
-    return [...installed, ...notInstalled];
+    return [...wallets].sort((a, b) => {
+      if (a.connected && !b.connected) return -1;
+      if (!a.connected && b.connected) return 1;
+      return a.wallet.name.localeCompare(b.wallet.name);
+    });
   }, [wallets]);
 
-  const handleSelect = useCallback((wallet: Wallet) => {
-    select(wallet.adapter.name);
-    onClose();
+  const handleSelect = useCallback(async (wallet: ConnectorWallet) => {
+    setConnecting(true);
+    try {
+      await select(wallet.wallet.name);
+      onClose();
+    } finally {
+      setConnecting(false);
+    }
   }, [select, onClose]);
 
   // Close on escape key
@@ -224,34 +224,35 @@ export function WalletModal({ visible, onClose, branding }: WalletModalProps) {
               </div>
             ) : (
               sortedWallets.map((wallet) => {
-                const isInstalled = wallet.readyState === 'Installed';
-                const isHovered = hoveredWallet === wallet.adapter.name;
+                const isHovered = hoveredWallet === wallet.wallet.name;
 
                 return (
                   <button
-                    key={wallet.adapter.name}
+                    key={wallet.wallet.name}
                     style={{
                       ...walletButtonStyle,
                       backgroundColor: isHovered ? '#3f3f46' : '#27272a',
                       borderColor: isHovered ? accentColor : '#3f3f46',
                     }}
                     onClick={() => handleSelect(wallet)}
-                    onMouseEnter={() => setHoveredWallet(wallet.adapter.name)}
+                    onMouseEnter={() => setHoveredWallet(wallet.wallet.name)}
                     onMouseLeave={() => setHoveredWallet(null)}
                     disabled={connecting}
                   >
                     <img
-                      src={wallet.adapter.icon}
-                      alt={wallet.adapter.name}
+                      src={wallet.wallet.icon}
+                      alt={wallet.wallet.name}
                       style={walletIconStyle}
                     />
-                    <span style={walletNameStyle}>{wallet.adapter.name}</span>
-                    {isInstalled ? (
+                    <span style={walletNameStyle}>{wallet.wallet.name}</span>
+                    {wallet.connected ? (
+                      <span style={{ ...walletTagStyle, backgroundColor: accentColor + '20', color: accentColor }}>
+                        Connected
+                      </span>
+                    ) : (
                       <span style={{ ...walletTagStyle, backgroundColor: accentColor + '20', color: accentColor }}>
                         Detected
                       </span>
-                    ) : (
-                      <span style={walletTagStyle}>Install</span>
                     )}
                   </button>
                 );

@@ -3,6 +3,7 @@
 import React, { forwardRef, useEffect, useState } from 'react';
 import { CheckoutModal } from './checkout-modal';
 import { useMoneyMQ } from './provider';
+import type { CloudEventEnvelope, PaymentSettlementSucceededData } from '@moneymq/sdk';
 
 /**
  * Represents a completed payment transaction.
@@ -284,13 +285,13 @@ export const CheckoutButton = forwardRef<HTMLButtonElement, CheckoutButtonProps>
       }
     };
 
-    const handlePaymentSuccess = (signature: string) => {
+    const handlePaymentSuccess = (event: CloudEventEnvelope<PaymentSettlementSucceededData>) => {
       const payment: Payment = {
-        id: `pay_${Date.now()}`,
+        id: event.id,
         amount: totalAmount,
         currency,
         status: 'completed',
-        signature,
+        signature: event.data.transaction_signature || undefined,
       };
       onSuccess?.(payment);
     };

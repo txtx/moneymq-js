@@ -39,7 +39,7 @@ const moneymq = new MoneyMQ({
 });
 
 // Create a product
-const product = await moneymq.catalog.products.create({
+const product = await moneymq.catalog.create({
   name: 'Pro Plan',
   description: 'Full access to all features',
 });
@@ -121,12 +121,12 @@ const moneymq = new MoneyMQ({
 #### Catalog API
 
 ```typescript
-// Products
-moneymq.catalog.products.create({ name, description?, metadata? })
-moneymq.catalog.products.retrieve(id)
-moneymq.catalog.products.list({ active?, limit?, startingAfter? })
-moneymq.catalog.products.update(id, { name?, description?, active?, metadata? })
-moneymq.catalog.products.delete(id)
+// Products (shorthand)
+moneymq.catalog.list({ active?, limit?, startingAfter? })
+moneymq.catalog.create({ name, description?, metadata? })
+moneymq.catalog.retrieve(id)
+moneymq.catalog.update(id, { name?, description?, active?, metadata? })
+moneymq.catalog.delete(id)
 
 // Prices
 moneymq.catalog.prices.create({ product, currency, amount, type, recurring?, metadata? })

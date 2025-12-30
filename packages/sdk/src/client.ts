@@ -2,6 +2,14 @@ import { CatalogAPI } from './catalog';
 import { PaymentAPI } from './payment';
 import { X402API } from './x402';
 import { EventStream, EventStreamOptions } from './events';
+import {
+  EventReader,
+  EventActor,
+  EventReceiver,
+  ReaderOptions,
+  ActorOptions,
+  ReceiverOptions,
+} from './channels';
 
 /**
  * Configuration options for the MoneyMQ client
@@ -45,7 +53,7 @@ export interface MoneyMQConfig {
  * });
  *
  * // Create a product
- * const product = await moneymq.catalog.products.create({
+ * const product = await moneymq.catalog.create({
  *   name: 'Pro Plan',
  *   description: 'Full access to all features',
  * });
@@ -70,21 +78,35 @@ export class MoneyMQ {
   /** X402 API for agentic payments */
   public readonly x402: X402API;
 
-  /** Events API for real-time SSE streams */
+  /** Events API for real-time SSE streams
+   * @deprecated Use `payment.processor()` and `payment.listener()` instead
+   */
   public readonly events: {
+    /**
+     * Create an event reader (subscribe only)
+     *
+     * @deprecated Use `payment.listener()` instead
+     */
+    reader: (channelId: string, options?: ReaderOptions) => EventReader;
+
+    /**
+     * Create an event actor (subscribe + publish)
+     *
+     * @deprecated Use `payment.processor()` with `tx.actor()` instead
+     */
+    actor: (channelId: string, options?: ActorOptions) => EventActor;
+
+    /**
+     * Create an event receiver (transaction spawner)
+     *
+     * @deprecated Use `payment.processor()` instead
+     */
+    receiver: (options?: ReceiverOptions) => EventReceiver;
+
     /**
      * Create a new event stream connection
      *
-     * @example
-     * ```typescript
-     * const stream = moneymq.events.stream({ last: 10 });
-     *
-     * stream.on('payment', (event) => {
-     *   console.log('Payment event:', event.type);
-     * });
-     *
-     * stream.connect();
-     * ```
+     * @deprecated Use `payment.processor()` instead
      */
     stream: (options?: EventStreamOptions) => EventStream;
   };
@@ -104,6 +126,18 @@ export class MoneyMQ {
     this.payment = new PaymentAPI(this.config);
     this.x402 = new X402API(this.config);
     this.events = {
+      reader: (channelId: string, options?: ReaderOptions) =>
+        new EventReader(this.config.endpoint, channelId, options),
+      actor: (channelId: string, options?: ActorOptions) =>
+        new EventActor(this.config.endpoint, channelId, {
+          ...options,
+          secret: options?.secret ?? this.config.secret,
+        }),
+      receiver: (options?: ReceiverOptions) =>
+        new EventReceiver(this.config.endpoint, {
+          ...options,
+          secret: options?.secret ?? this.config.secret,
+        }),
       stream: (options?: EventStreamOptions) => new EventStream(this.config.endpoint, options),
     };
   }

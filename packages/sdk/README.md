@@ -22,7 +22,7 @@ const moneymq = new MoneyMQ({
 });
 
 // Create a product
-const product = await moneymq.catalog.products.create({
+const product = await moneymq.catalog.create({
   name: 'Pro Plan',
   description: 'Full access to all features',
 });
@@ -65,8 +65,17 @@ const moneymq = new MoneyMQ({
 #### Products
 
 ```typescript
+// List all products
+const { data, hasMore } = await moneymq.catalog.list();
+
+// With filters
+const { data, hasMore } = await moneymq.catalog.list({
+  active: true,
+  limit: 10,
+});
+
 // Create a product
-const product = await moneymq.catalog.products.create({
+const product = await moneymq.catalog.create({
   name: 'Pro Plan',
   description: 'Full access',
   active: true,
@@ -74,21 +83,15 @@ const product = await moneymq.catalog.products.create({
 });
 
 // Retrieve a product
-const product = await moneymq.catalog.products.retrieve('prod_123');
-
-// List products
-const { data, hasMore } = await moneymq.catalog.products.list({
-  active: true,
-  limit: 10,
-});
+const product = await moneymq.catalog.retrieve('prod_123');
 
 // Update a product
-const updated = await moneymq.catalog.products.update('prod_123', {
+const updated = await moneymq.catalog.update('prod_123', {
   name: 'Enterprise Plan',
 });
 
 // Delete a product
-await moneymq.catalog.products.delete('prod_123');
+await moneymq.catalog.delete('prod_123');
 ```
 
 #### Prices
@@ -227,7 +230,7 @@ await moneymq.payment.payouts.settings.update({
 import { MoneyMQ, MoneyMQError } from '@moneymq/sdk';
 
 try {
-  await moneymq.catalog.products.retrieve('invalid_id');
+  await moneymq.catalog.retrieve('invalid_id');
 } catch (error) {
   if (error instanceof MoneyMQError) {
     console.error('Status:', error.statusCode);

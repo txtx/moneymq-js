@@ -1,4 +1,10 @@
 import type { MoneyMQConfig } from './client';
+import {
+  EventReader,
+  EventReceiver,
+  ReaderOptions,
+  ReceiverOptions,
+} from './channels';
 
 // Types
 export interface LineItem {
@@ -431,6 +437,7 @@ class PaymentIntentsAPI {
  */
 export class PaymentAPI {
   private request: ReturnType<typeof createRequester>;
+  private config: MoneyMQConfig;
 
   /** Checkout sessions API - for full e-commerce flows with line items */
   public readonly checkout: CheckoutAPI;
@@ -451,6 +458,7 @@ export class PaymentAPI {
   public readonly webhooks: WebhooksAPI;
 
   constructor(config: MoneyMQConfig) {
+    this.config = config;
     this.request = createRequester(config);
     this.checkout = new CheckoutAPI(config);
     this.intents = new PaymentIntentsAPI(config);
@@ -458,6 +466,59 @@ export class PaymentAPI {
     this.customers = new CustomersAPI(config);
     this.payouts = new PayoutsAPI(config);
     this.webhooks = new WebhooksAPI(config);
+  }
+
+  /**
+   * Create a payment processor (transaction spawner)
+   *
+   * Use for backend applications that handle multiple concurrent transactions.
+   * Uses the client's secret for authentication.
+   *
+   * @example
+   * ```typescript
+   * const processor = moneymq.payment.processor();
+   *
+   * processor.on('transaction', (tx) => {
+   *   const actor = tx.actor();
+   *
+   *   actor.on('payment:settled', async (event) => {
+   *     await processPayment(event.data);
+   *     await actor.send('order:completed', { orderId: tx.id });
+   *   });
+   * });
+   *
+   * processor.connect();
+   * ```
+   */
+  processor(options?: ReceiverOptions): EventReceiver {
+    return new EventReceiver(this.config.endpoint, {
+      ...options,
+      secret: options?.secret ?? this.config.secret,
+    });
+  }
+
+  /**
+   * Create a payment listener (subscribe only)
+   *
+   * Use for frontend applications that only need to receive events for a specific channel.
+   *
+   * @example
+   * ```typescript
+   * const listener = moneymq.payment.listener('order-123');
+   *
+   * listener.on('payment:settled', (event) => {
+   *   console.log('Payment settled:', event.data);
+   * });
+   *
+   * listener.on('order:completed', (event) => {
+   *   updateUI(event.data.trackingNumber);
+   * });
+   *
+   * listener.connect();
+   * ```
+   */
+  listener(channelId: string, options?: ReaderOptions): EventReader {
+    return new EventReader(this.config.endpoint, channelId, options);
   }
 
   /**

@@ -7,5 +7,12 @@ export default defineConfig({
   splitting: false,
   sourcemap: true,
   clean: true,
-  external: ['react', 'react-dom'],
+  platform: 'browser',
+  external: [
+    'react',
+    'react-dom',
+    '@headlessui/react',
+  ],
+  // Bundle these for better DX - consumers don't need to install them
+  noExternal: ['@lottiefiles/dotlottie-react', '@solana/connector'],
 });

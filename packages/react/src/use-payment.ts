@@ -1,8 +1,7 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import { useWallet } from '@solana/wallet-adapter-react';
-import { useWalletModal } from './wallet-modal-provider';
+import { useConnector, useAccount } from '@solana/connector';
 
 export interface Payment {
   id: string;
@@ -21,13 +20,12 @@ export interface UsePaymentReturn {
 export function usePayment(): UsePaymentReturn {
   const [isPending, setIsPending] = useState(false);
   const [lastPayment, setLastPayment] = useState<Payment | null>(null);
-  const { publicKey, connected } = useWallet();
-  const { setVisible } = useWalletModal();
+  const { connected } = useConnector();
+  const { address } = useAccount();
 
   const pay = useCallback(async (priceId: string): Promise<Payment | null> => {
-    // If not connected, open wallet modal
-    if (!connected || !publicKey) {
-      setVisible(true);
+    // If not connected, return null (caller should handle connection)
+    if (!connected || !address) {
       return null;
     }
 
@@ -35,7 +33,7 @@ export function usePayment(): UsePaymentReturn {
 
     try {
       const event = new CustomEvent('moneymq:pay', {
-        detail: { priceId, publicKey: publicKey.toBase58() },
+        detail: { priceId, publicKey: address },
         bubbles: true,
       });
       window.dispatchEvent(event);
@@ -74,7 +72,7 @@ export function usePayment(): UsePaymentReturn {
     } finally {
       setIsPending(false);
     }
-  }, [connected, publicKey, setVisible]);
+  }, [connected, address]);
 
   return { pay, isPending, lastPayment };
 }
