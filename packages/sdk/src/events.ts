@@ -177,6 +177,8 @@ export interface PaymentSettlementSucceededData {
   product_id: string | null;
   /** Payment flow type (x402 or checkout) */
   payment_flow: PaymentFlow;
+  /** Transaction/channel ID for subscribing to processor events */
+  transaction_id?: string;
 }
 
 /**

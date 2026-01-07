@@ -365,24 +365,3 @@ reader.on('error', (error) => {
 ### Phase 4: Documentation
 
 6. **Update README and examples**
-
-## Migration from `events.stream()`
-
-The existing `events.stream()` API will be deprecated but remain functional:
-
-```typescript
-// Old API (deprecated)
-const stream = moneymq.events.stream({ streamId: 'my-stream', last: 10 });
-stream.on('payment', handler);
-stream.connect();
-
-// New API
-const reader = moneymq.events.reader('my-stream', { replay: 10 });
-reader.on('payment:settled', handler);
-reader.connect();
-```
-
-Key differences:
-- Channel ID is now a positional argument, not in options
-- Event types use colon notation (`payment:settled` vs discriminated `payment` event)
-- `last` renamed to `replay` for clarity

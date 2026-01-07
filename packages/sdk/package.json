@@ -36,6 +36,9 @@
   ],
   "author": "MoneyMQ",
   "license": "MIT",
+  "dependencies": {
+    "bs58": "^6.0.0"
+  },
   "peerDependencies": {
     "x402-fetch": "^0.7.0"
   },

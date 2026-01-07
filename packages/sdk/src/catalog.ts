@@ -45,6 +45,37 @@ export interface ProductAccessParams {
   paymentHeader?: string;
 }
 
+/** Experiment configuration for A/B testing */
+export interface ExperimentConfig {
+  /** Traffic exposure percentage (0.0 to 1.0) */
+  exposure: number;
+}
+
+/** Product feature definition */
+export interface ProductFeature {
+  name?: string;
+  description?: string;
+  value?: unknown;
+}
+
+/** Recurring interval configuration for subscription prices */
+export interface PriceRecurring {
+  interval: 'day' | 'week' | 'month' | 'year';
+  intervalCount: number;
+}
+
+/** Product price (inline in product response) */
+export interface ProductPrice {
+  id: string;
+  object: 'price';
+  active: boolean;
+  currency: string;
+  unitAmount?: number;
+  type: 'one_time' | 'recurring';
+  recurring?: PriceRecurring;
+  nickname?: string;
+}
+
 export interface Product {
   id: string;
   object: 'product';
@@ -54,8 +85,18 @@ export interface Product {
   metadata?: Record<string, string>;
   created: number;
   updated: number;
+  /** Product type (e.g., "service", "good") */
+  type?: string;
   /** URL path for accessing this product (x402 gated) */
   accessUrl: string;
+  /** Experiment configuration (set when an experiment variant was selected) */
+  experiment?: ExperimentConfig;
+  /** Selected experiment variant ID (e.g., "surfnet-lite#a" while id is "surfnet-lite") */
+  experimentId?: string;
+  /** Product features */
+  features?: Record<string, ProductFeature>;
+  /** Default price for this product */
+  defaultPrice?: ProductPrice;
 }
 
 export interface ProductCreateParams {
@@ -143,7 +184,7 @@ class ProductsAPI {
     const query = new URLSearchParams();
     if (params?.active !== undefined) query.set('active', String(params.active));
     if (params?.limit) query.set('limit', String(params.limit));
-    if (params?.startingAfter) query.set('starting_after', params.startingAfter);
+    if (params?.startingAfter) query.set('startingAfter', params.startingAfter);
 
     const queryString = query.toString();
     const result = await this.request<{ data: Product[]; hasMore: boolean }>(

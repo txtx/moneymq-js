@@ -8,13 +8,17 @@ export type { ServerConfig } from './config';
 // Catalog types
 export type {
   Product,
+  ProductPrice,
+  ProductFeature,
   ProductCreateParams,
   ProductListParams,
   Price,
+  PriceRecurring,
   PriceCreateParams,
   PaymentRequirements,
   ProductAccessResponse,
   ProductAccessParams,
+  ExperimentConfig,
 } from './catalog';
 
 // Catalog errors
@@ -22,6 +26,7 @@ export { PaymentRequiredError } from './catalog';
 
 // Payment types
 export type {
+  CheckoutLineItem,
   CheckoutSession,
   CheckoutCreateParams,
   PaymentLink,
@@ -105,3 +110,16 @@ export type {
   Transaction,
   TransactionHandler,
 } from './channels';
+
+// Channel ID utilities
+export { computeChannelId } from './channel-id';
+
+// Receipt utilities
+export { CheckoutReceipt } from './receipt';
+export type {
+  BasketItem,
+  PaymentDetails,
+  ProcessorData,
+  Attachments,
+  ReceiptClaims,
+} from './receipt';

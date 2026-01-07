@@ -32,8 +32,8 @@ export * from './types';
  *       usage: {
  *         enabled: true,
  *         metrics: [
- *           { name: 'api_calls', priceId: 'price_xxx', unit: 'requests' },
- *           { name: 'storage', priceId: 'price_yyy', unit: 'GB' },
+ *           { name: 'api_calls', productId: 'api-calls-metered', unit: 'requests' },
+ *           { name: 'storage', productId: 'storage-metered', unit: 'GB' },
  *         ],
  *       },
  *     }),
@@ -337,7 +337,7 @@ export const moneymq = (options: MoneyMQPluginOptions) => {
           }
 
           // Group by metric and calculate totals
-          const metricTotals: Record<string, { quantity: number; priceId: string; recordIds: string[] }> = {};
+          const metricTotals: Record<string, { quantity: number; productId: string; recordIds: string[] }> = {};
 
           for (const record of filteredRecords) {
             const metricConfig = usage.metrics.find((m) => m.name === record.metric);
@@ -346,7 +346,7 @@ export const moneymq = (options: MoneyMQPluginOptions) => {
             if (!metricTotals[record.metric]) {
               metricTotals[record.metric] = {
                 quantity: 0,
-                priceId: metricConfig.priceId,
+                productId: metricConfig.productId,
                 recordIds: [],
               };
             }
@@ -366,9 +366,9 @@ export const moneymq = (options: MoneyMQPluginOptions) => {
             metricTotals[record.metric].recordIds.push(record.id);
           }
 
-          // Create line items
+          // Create line items for checkout
           const lineItems = Object.values(metricTotals).map((m) => ({
-            price: m.priceId,
+            productId: m.productId,
             quantity: Math.ceil(m.quantity),
           }));
 
@@ -405,8 +405,9 @@ export const moneymq = (options: MoneyMQPluginOptions) => {
           body: z.object({
             lineItems: z.array(
               z.object({
-                price: z.string(),
-                quantity: z.number().positive(),
+                productId: z.string(),
+                experimentId: z.string().optional(),
+                quantity: z.number().positive().optional(),
               }),
             ),
             successUrl: z.string(),

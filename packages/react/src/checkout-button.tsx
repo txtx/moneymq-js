@@ -3,7 +3,7 @@
 import React, { forwardRef, useEffect, useState } from 'react';
 import { CheckoutModal } from './checkout-modal';
 import { useMoneyMQ } from './provider';
-import type { CloudEventEnvelope, PaymentSettlementSucceededData } from '@moneymq/sdk';
+import { CheckoutReceipt } from '@moneymq/sdk';
 
 /**
  * Represents a completed payment transaction.
@@ -233,10 +233,12 @@ export const CheckoutButton = forwardRef<HTMLButtonElement, CheckoutButtonProps>
         product: item.product,
         price: item.price,
         quantity: item.quantity ?? 1,
-        subtotal: (item.price.unit_amount / 100) * (item.quantity ?? 1),
       }));
 
-      const total = items.reduce((sum, item) => sum + item.subtotal, 0);
+      const total = items.reduce(
+        (sum, item) => sum + (item.price.unit_amount / 100) * item.quantity,
+        0
+      );
 
       return {
         totalAmount: total,
@@ -285,13 +287,14 @@ export const CheckoutButton = forwardRef<HTMLButtonElement, CheckoutButtonProps>
       }
     };
 
-    const handlePaymentSuccess = (event: CloudEventEnvelope<PaymentSettlementSucceededData>) => {
+    const handlePaymentSuccess = (receipt: CheckoutReceipt) => {
+      const paymentDetails = receipt.getPayment();
       const payment: Payment = {
-        id: event.id,
+        id: paymentDetails.transactionId,
         amount: totalAmount,
         currency,
         status: 'completed',
-        signature: event.data.transaction_signature || undefined,
+        signature: paymentDetails.signature || undefined,
       };
       onSuccess?.(payment);
     };

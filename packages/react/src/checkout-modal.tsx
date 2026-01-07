@@ -8,9 +8,12 @@ import { useMoneyMQ, useSandbox, type SandboxAccount } from './provider';
 import logoAnimation from './assets/logo-animation.json';
 import {
   EventStream,
+  EventReader,
+  CheckoutReceipt,
   isPaymentSettlementSucceeded,
   type PaymentSettlementSucceededData,
   type CloudEventEnvelope,
+  type ChannelEvent,
 } from '@moneymq/sdk';
 
 // Wallet type for connector
@@ -43,6 +46,16 @@ function normalizeRpcUrl(url: string): string {
   return url.replace('0.0.0.0', 'localhost').replace('127.0.0.1', 'localhost');
 }
 
+// Safe JSON parsing helper
+async function parseJsonResponse(res: Response): Promise<unknown> {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(text || `Request failed with status ${res.status}`);
+  }
+}
+
 // Handle 402 Payment Required responses
 async function makeRequestWith402Handling(
   url: string,
@@ -67,14 +80,15 @@ async function makeRequestWith402Handling(
     body: requestBody,
   });
 
-  let data = await response.json();
+  let data = await parseJsonResponse(response) as Record<string, unknown>;
   console.log(`[MoneyMQ] Response status: ${response.status}`, data);
 
   // Handle 402 Payment Required
   if (response.status === 402) {
     // Use x402 standard format (accepts), with fallback for legacy formats
+    const errorData = data?.error as Record<string, unknown> | undefined;
     const paymentRequirements =
-      data?.accepts || data?.payment_requirements || data?.error?.payment_requirements || [];
+      (data?.accepts || data?.payment_requirements || errorData?.payment_requirements || []) as unknown[];
 
     if (paymentRequirements.length === 0) {
       console.warn('[MoneyMQ] ⚠️  No payment requirements found in 402 response');
@@ -95,8 +109,9 @@ async function makeRequestWith402Handling(
     });
 
     // Select appropriate payment requirement
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const selectedPaymentRequirement = selectPaymentRequirements(
-      paymentRequirements,
+      paymentRequirements as any,
       'solana',
       'exact',
     );
@@ -124,26 +139,28 @@ async function makeRequestWith402Handling(
       body: requestBody,
     });
 
-    data = await response.json();
+    data = await parseJsonResponse(response) as Record<string, unknown>;
     console.log(`[MoneyMQ] Retry response status: ${response.status}`, data);
 
     if (!response.ok) {
-      throw new Error(data.error?.message || 'Request failed after payment');
+      const err = data?.error as Record<string, unknown> | undefined;
+      throw new Error((err?.message as string) || 'Request failed after payment');
     }
   } else if (!response.ok) {
-    throw new Error(data.error?.message || 'Request failed');
+    const err = data?.error as Record<string, unknown> | undefined;
+    throw new Error((err?.message as string) || 'Request failed');
   }
 
   return data;
 }
 
-// Checkout session response type
+// Checkout session response type (camelCase from API)
 interface CheckoutSession {
   id: string;
-  payment_intent: string;
-  client_secret: string;
+  paymentIntent: string;
+  clientSecret: string;
   status: string;
-  line_items: {
+  lineItems: {
     data: Array<{
       id: string;
       price: {
@@ -171,20 +188,11 @@ async function createSandboxPayment(
     senderAddress,
   });
 
-  // Build line_items array in Stripe Checkout format
+  // Build lineItems - just product references, backend resolves from catalog
   const checkoutLineItems =
     lineItems?.map((item) => ({
-      price_data: {
-        currency: item.price.currency.toLowerCase(),
-        unit_amount: item.price.unit_amount,
-        product_data: {
-          name: item.product.name,
-          description: item.product.description || undefined,
-          metadata: {
-            product_id: item.product.id,
-          },
-        },
-      },
+      productId: item.product.id,
+      experimentId: item.product.experimentId,
       quantity: item.quantity,
     })) || [];
 
@@ -194,11 +202,11 @@ async function createSandboxPayment(
     `${apiUrl}/catalog/v1/checkout/sessions`,
     'POST',
     {
-      line_items: checkoutLineItems,
+      lineItems: checkoutLineItems,
       customer: senderAddress,
       metadata: {
-        sender_address: senderAddress,
-        recipient_address: recipient,
+        senderAddress: senderAddress,
+        recipientAddress: recipient,
       },
       mode: 'payment',
     },
@@ -211,7 +219,7 @@ async function createSandboxPayment(
   console.log('[MoneyMQ] Checkout session created:', checkoutSession);
 
   // Step 2: Confirm the underlying payment intent
-  const paymentIntentId = checkoutSession.payment_intent;
+  const paymentIntentId = checkoutSession.paymentIntent;
   console.log('[MoneyMQ] Confirming payment intent:', paymentIntentId);
 
   const confirmedIntent = (await makeRequestWith402Handling(
@@ -275,6 +283,56 @@ function waitForSettlementEvent(
   });
 }
 
+// Wait for a specific event type on a channel using EventReader
+function waitForChannelEvent<T = unknown>(
+  apiUrl: string,
+  channelId: string,
+  eventType: string,
+  timeoutMs: number = 30000,
+): Promise<ChannelEvent<T>> {
+  return new Promise((resolve, reject) => {
+    console.log('[MoneyMQ] Waiting for channel event:', eventType, 'on channel:', channelId);
+
+    // Use EventReader with replay to catch events we might have missed
+    const reader = new EventReader(apiUrl, channelId, { replay: 10 });
+    let resolved = false;
+
+    const cleanup = () => {
+      if (!resolved) {
+        reader.disconnect();
+      }
+    };
+
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error(`Channel event timeout waiting for ${eventType}`));
+    }, timeoutMs);
+
+    reader.on(eventType, (event: ChannelEvent<T>) => {
+      console.log('[MoneyMQ] Channel event received:', eventType);
+      resolved = true;
+      clearTimeout(timeout);
+      reader.disconnect();
+      resolve(event);
+    });
+
+    reader.on('error', (error) => {
+      console.error('[MoneyMQ] Channel reader error:', error);
+      // Don't reject on stream errors, just log - the timeout will handle failures
+    });
+
+    reader.connect();
+  });
+}
+
+/** Data from transaction:completed channel event */
+interface TransactionCompletedData {
+  /** JWT receipt token */
+  receipt?: string;
+  /** Raw processor data */
+  processorData?: Record<string, unknown>;
+}
+
 // Payment method types
 type PaymentMethodType = 'browser_extension' | 'sandbox_account';
 
@@ -285,41 +343,57 @@ interface SelectedPaymentMethod {
 }
 
 /**
- * Represents a line item in the checkout, including product, price, quantity, and calculated subtotal.
+ * Product information for a line item.
+ * Contains the essential fields needed for checkout + experimentId for A/B tracking.
+ */
+export interface LineItemProduct {
+  /** Unique product identifier */
+  id: string;
+  /** Display name shown to the customer */
+  name: string;
+  /** Optional description */
+  description?: string;
+  /** Experiment variant ID (e.g., "surfnet-lite#a") - for A/B test tracking */
+  experimentId?: string;
+}
+
+/**
+ * Price information for a line item.
+ */
+export interface LineItemPrice {
+  /** Unique price identifier */
+  id: string;
+  /** Price amount in cents (e.g., 999 for $9.99) */
+  unit_amount: number;
+  /** Currency code (e.g., "USDC") */
+  currency: string;
+}
+
+/**
+ * Represents a line item in the checkout.
  *
  * @example
  * ```tsx
  * const lineItem: LineItem = {
- *   product: { id: 'prod_123', name: 'Pro Plan' },
+ *   product: { id: 'prod_123', name: 'Pro Plan', experimentId: 'prod_123#a' },
  *   price: { id: 'price_456', unit_amount: 999, currency: 'USDC' },
  *   quantity: 2,
- *   subtotal: 19.98,
  * };
+ * // Subtotal: (lineItem.price.unit_amount / 100) * lineItem.quantity
  * ```
  */
 export interface LineItem {
   /** Product information */
-  product: {
-    /** Unique product identifier */
-    id: string;
-    /** Display name shown to the customer */
-    name: string;
-    /** Optional description */
-    description?: string;
-  };
+  product: LineItemProduct;
   /** Price information */
-  price: {
-    /** Unique price identifier */
-    id: string;
-    /** Price amount in cents (e.g., 999 for $9.99) */
-    unit_amount: number;
-    /** Currency code (e.g., "USDC") */
-    currency: string;
-  };
+  price: LineItemPrice;
   /** Quantity of this item */
   quantity: number;
-  /** Calculated subtotal (unit_amount / 100 * quantity) */
-  subtotal: number;
+}
+
+/** Calculate subtotal for a line item */
+export function getLineItemSubtotal(item: LineItem): number {
+  return (item.price.unit_amount / 100) * item.quantity;
 }
 
 /**
@@ -350,8 +424,8 @@ export interface CheckoutModalProps {
   recipient: string;
   /** Optional line items to display in the checkout summary */
   lineItems?: LineItem[];
-  /** Callback fired when payment completes. Receives the full payment settlement event. */
-  onSuccess?: (event: CloudEventEnvelope<PaymentSettlementSucceededData>) => void;
+  /** Callback fired when payment completes. Receives the CheckoutReceipt with helpers. */
+  onSuccess?: (receipt: CheckoutReceipt) => void;
   /** Callback fired when payment fails. Receives the Error with failure details. */
   onError?: (error: Error) => void;
   /** Accent color for UI elements. @default "#ec4899" */
@@ -397,7 +471,6 @@ const truncateAddress = (address: string) => {
  *             product: { id: 'prod_1', name: 'Pro Plan' },
  *             price: { id: 'price_1', unit_amount: 999, currency: 'USDC' },
  *             quantity: 1,
- *             subtotal: 9.99,
  *           },
  *         ]}
  *         onSuccess={(signature) => {
@@ -681,12 +754,34 @@ export function CheckoutModal({
           lineItems,
         );
 
-        // Step 2: Wait for settlement event via stream
+        // Step 2: Wait for settlement event via stream to get transaction_id
         console.log('[MoneyMQ] Payment confirmed, waiting for settlement event...');
         const settlementEvent = await waitForSettlementEvent(apiUrl, paymentIntentId);
 
+        // Step 3: Wait for transaction:completed which contains the receipt JWT
+        const transactionId = settlementEvent.data?.transaction_id;
+        if (!transactionId) {
+          throw new Error('No transaction ID received from settlement event');
+        }
+
+        console.log('[MoneyMQ] Waiting for transaction:completed on channel:', transactionId);
+        const completedEvent = await waitForChannelEvent<TransactionCompletedData>(
+          apiUrl,
+          transactionId,
+          'transaction:completed',
+          30000,
+        );
+
+        const receiptToken = completedEvent.data?.receipt;
+        if (!receiptToken) {
+          throw new Error('No receipt token in transaction:completed event');
+        }
+
+        console.log('[MoneyMQ] Receipt received, creating CheckoutReceipt');
+        const receipt = new CheckoutReceipt(receiptToken);
+
         setIsSending(false);
-        onSuccess?.(settlementEvent);
+        onSuccess?.(receipt);
         onClose();
         return;
       }
@@ -711,8 +806,30 @@ export function CheckoutModal({
       console.log('[MoneyMQ] Browser extension payment initiated, waiting for settlement event...');
       const settlementEvent = await waitForSettlementEvent(apiUrl, 'browser_extension');
 
+      // Wait for transaction:completed which contains the receipt JWT
+      const transactionId = settlementEvent.data?.transaction_id;
+      if (!transactionId) {
+        throw new Error('No transaction ID received from settlement event');
+      }
+
+      console.log('[MoneyMQ] Waiting for transaction:completed on channel:', transactionId);
+      const completedEvent = await waitForChannelEvent<TransactionCompletedData>(
+        apiUrl,
+        transactionId,
+        'transaction:completed',
+        30000,
+      );
+
+      const receiptToken = completedEvent.data?.receipt;
+      if (!receiptToken) {
+        throw new Error('No receipt token in transaction:completed event');
+      }
+
+      console.log('[MoneyMQ] Receipt received, creating CheckoutReceipt');
+      const receipt = new CheckoutReceipt(receiptToken);
+
       setIsSending(false);
-      onSuccess?.(settlementEvent);
+      onSuccess?.(receipt);
       onClose();
     } catch (err) {
       console.error('Payment failed:', err);
@@ -1417,7 +1534,7 @@ export function CheckoutModal({
                         )}
                       </div>
                       <div style={{ fontSize: '0.875rem', color: '#fff', fontWeight: 500 }}>
-                        {item.subtotal.toLocaleString(undefined, {
+                        {getLineItemSubtotal(item).toLocaleString(undefined, {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
                         })}{' '}

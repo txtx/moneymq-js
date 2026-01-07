@@ -25,9 +25,9 @@ export interface UsageMetric {
    */
   name: string;
   /**
-   * MoneyMQ price ID for this metric
+   * MoneyMQ product ID for this metric
    */
-  priceId: string;
+  productId: string;
   /**
    * Human-readable display name
    */

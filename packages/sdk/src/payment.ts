@@ -7,9 +7,15 @@ import {
 } from './channels';
 
 // Types
-export interface LineItem {
-  price: string;
-  quantity: number;
+
+/** Line item for checkout session creation - references catalog products */
+export interface CheckoutLineItem {
+  /** Product ID from catalog */
+  productId: string;
+  /** Experiment variant ID (e.g., "surfnet-lite#a") for A/B test tracking */
+  experimentId?: string;
+  /** Quantity of items (default: 1) */
+  quantity?: number;
 }
 
 export interface CheckoutSession {
@@ -19,7 +25,7 @@ export interface CheckoutSession {
   status: 'open' | 'complete' | 'expired';
   paymentStatus: 'unpaid' | 'paid';
   customer?: string;
-  lineItems: LineItem[];
+  lineItems: CheckoutLineItem[];
   successUrl: string;
   cancelUrl: string;
   expiresAt: number;
@@ -27,7 +33,7 @@ export interface CheckoutSession {
 }
 
 export interface CheckoutCreateParams {
-  lineItems: LineItem[];
+  lineItems: CheckoutLineItem[];
   successUrl: string;
   cancelUrl: string;
   customerEmail?: string;
@@ -40,13 +46,13 @@ export interface PaymentLink {
   object: 'payment_link';
   url: string;
   active: boolean;
-  lineItems: LineItem[];
+  lineItems: CheckoutLineItem[];
   expiresAt?: number;
   created: number;
 }
 
 export interface PaymentLinkCreateParams {
-  lineItems: LineItem[];
+  lineItems: CheckoutLineItem[];
   expiresAt?: Date | number;
   metadata?: Record<string, string>;
 }
