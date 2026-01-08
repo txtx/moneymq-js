@@ -261,6 +261,94 @@ export class ChannelError extends Error {
 }
 
 // ============================================================================
+// Stream Message Types (for async iteration)
+// ============================================================================
+
+/**
+ * Event message from the stream
+ */
+export interface EventStreamMessage<T = unknown> {
+  type: 'event';
+  event: ChannelEvent<T>;
+}
+
+/**
+ * Connection state change message
+ */
+export interface StateStreamMessage {
+  type: 'state';
+  state: ConnectionState;
+}
+
+/**
+ * Error message from the stream
+ */
+export interface ErrorStreamMessage {
+  type: 'error';
+  error: ChannelError;
+}
+
+/**
+ * Transaction with actor factory method and convenience methods
+ */
+export interface TransactionWithActor extends Transaction {
+  /** Create an actor scoped to this transaction's channel */
+  actor(options?: Omit<ActorOptions, 'secret'>): EventActor;
+
+  /**
+   * Stream events for this transaction
+   *
+   * Creates an actor internally and yields events from the transaction's channel.
+   */
+  events(options?: { signal?: AbortSignal }): AsyncGenerator<ChannelEvent>;
+
+  /**
+   * Attach data to this transaction's channel
+   *
+   * Creates an actor internally if not already created.
+   * The server will create a signed receipt JWT and emit a transaction:completed event.
+   */
+  attach<T = unknown>(data: T): Promise<ChannelEvent<T>>;
+}
+
+/**
+ * Transaction message (for receivers)
+ * Note: The transaction has an actor() method to create a scoped EventActor
+ */
+export interface TransactionStreamMessage {
+  type: 'transaction';
+  transaction: TransactionWithActor;
+}
+
+/**
+ * Union of all channel stream message types
+ */
+export type ChannelStreamMessage<T = unknown> =
+  | EventStreamMessage<T>
+  | StateStreamMessage
+  | ErrorStreamMessage;
+
+/**
+ * Union of all receiver stream message types
+ */
+export type ReceiverStreamMessage =
+  | TransactionStreamMessage
+  | StateStreamMessage
+  | ErrorStreamMessage;
+
+/**
+ * Options for the stream() method
+ */
+export interface StreamOptions {
+  /** AbortSignal to cancel the stream */
+  signal?: AbortSignal;
+  /** Include state change messages (default: true) */
+  includeState?: boolean;
+  /** Include error messages (default: true) */
+  includeErrors?: boolean;
+}
+
+// ============================================================================
 // Base Channel Class
 // ============================================================================
 
@@ -426,6 +514,154 @@ abstract class BaseChannel {
     this.setState('disconnected');
     this.reconnectAttempts = 0;
     this.disconnectionHandlers.forEach((h) => h());
+  }
+
+  /**
+   * Stream events as an async iterable
+   *
+   * Automatically connects and yields messages until disconnected or aborted.
+   *
+   * @example
+   * ```typescript
+   * const reader = moneymq.payment.listener('tx-123');
+   *
+   * for await (const message of reader.stream()) {
+   *   if (message.type === 'event') {
+   *     console.log('Event:', message.event.type, message.event.data);
+   *   } else if (message.type === 'state') {
+   *     console.log('State:', message.state);
+   *   } else if (message.type === 'error') {
+   *     console.error('Error:', message.error);
+   *   }
+   * }
+   * ```
+   */
+  async *stream<T = unknown>(options: StreamOptions = {}): AsyncGenerator<ChannelStreamMessage<T>> {
+    const { signal, includeState = true, includeErrors = true } = options;
+
+    // Queue to buffer messages between push and pull
+    const queue: ChannelStreamMessage<T>[] = [];
+    let resolve: (() => void) | null = null;
+    let done = false;
+
+    const push = (message: ChannelStreamMessage<T>) => {
+      queue.push(message);
+      if (resolve) {
+        resolve();
+        resolve = null;
+      }
+    };
+
+    // Register internal handlers
+    const eventHandler = (event: ChannelEvent<T>) => {
+      push({ type: 'event', event });
+    };
+
+    const connectedHandler = () => {
+      if (includeState) {
+        push({ type: 'state', state: 'connected' });
+      }
+    };
+
+    const disconnectedHandler = () => {
+      if (includeState) {
+        push({ type: 'state', state: 'disconnected' });
+      }
+      done = true;
+      if (resolve) {
+        resolve();
+        resolve = null;
+      }
+    };
+
+    const errorHandler = (error: ChannelError) => {
+      if (includeErrors) {
+        push({ type: 'error', error });
+      }
+    };
+
+    // Handle abort signal
+    const abortHandler = () => {
+      done = true;
+      if (resolve) {
+        resolve();
+        resolve = null;
+      }
+    };
+
+    signal?.addEventListener('abort', abortHandler);
+
+    // Subscribe to all events with wildcard
+    const unsubEvent = this.on('*', eventHandler as ChannelEventHandler);
+    const unsubConnected = this.on('connected', connectedHandler);
+    const unsubDisconnected = this.on('disconnected', disconnectedHandler);
+    const unsubError = this.on('error', errorHandler);
+
+    // Auto-connect if not connected
+    if (this.state === 'disconnected') {
+      if (includeState) {
+        push({ type: 'state', state: 'connecting' });
+      }
+      this.connect();
+    }
+
+    try {
+      while (!done) {
+        // Yield all queued messages
+        while (queue.length > 0) {
+          yield queue.shift()!;
+        }
+
+        // Wait for new messages if not done
+        if (!done) {
+          await new Promise<void>((r) => {
+            resolve = r;
+          });
+        }
+      }
+
+      // Yield remaining messages
+      while (queue.length > 0) {
+        yield queue.shift()!;
+      }
+    } finally {
+      // Cleanup
+      signal?.removeEventListener('abort', abortHandler);
+      unsubEvent();
+      unsubConnected();
+      unsubDisconnected();
+      unsubError();
+
+      // Disconnect if we were the ones who connected
+      if (this.eventSource) {
+        this.disconnect();
+      }
+    }
+  }
+
+  /**
+   * Stream events directly as an async iterable
+   *
+   * Simpler API that only yields events, ignoring state/error messages.
+   * Automatically connects and yields until disconnected or aborted.
+   *
+   * @example
+   * ```typescript
+   * const listener = moneymq.payment.listener('tx-123');
+   *
+   * for await (const event of listener.events()) {
+   *   if (event.type === 'payment:settled') {
+   *     console.log('Payment settled:', event.data.amount);
+   *   }
+   * }
+   * ```
+   */
+  async *events<T = unknown>(options: { signal?: AbortSignal } = {}): AsyncGenerator<ChannelEvent<T>> {
+    for await (const message of this.stream<T>({ ...options, includeState: false, includeErrors: false })) {
+      if (message.type === 'event') {
+        yield message.event;
+      }
+    }
   }
 
   protected abstract buildUrl(): string;
@@ -652,7 +888,7 @@ export class EventActor extends BaseChannel {
 /**
  * Transaction wrapper for receiver callbacks
  */
-class TransactionContext implements Transaction {
+class TransactionContext implements TransactionWithActor {
   id: string;
   channelId: string;
   basket: BasketItem[];
@@ -661,6 +897,7 @@ class TransactionContext implements Transaction {
 
   private endpoint: string;
   private secret: string;
+  private _actor: EventActor | null = null;
 
   constructor(data: Transaction, endpoint: string, secret: string) {
     this.id = data.id;
@@ -670,6 +907,19 @@ class TransactionContext implements Transaction {
     this.metadata = data.metadata;
     this.endpoint = endpoint;
     this.secret = secret;
+  }
+
+  /**
+   * Get or create the internal actor (lazy initialization)
+   */
+  private getOrCreateActor(): EventActor {
+    if (!this._actor) {
+      this._actor = new EventActor(this.endpoint, this.channelId, {
+        secret: this.secret,
+      });
+      this._actor.connect();
+    }
+    return this._actor;
   }
 
   /**
@@ -718,14 +968,75 @@ class TransactionContext implements Transaction {
    * Create an actor scoped to this transaction's channel
    *
    * The actor is automatically connected.
+   * Note: If you use events() or send() methods, they share the same internal actor.
    */
   actor(options?: Omit<ActorOptions, 'secret'>): EventActor {
-    const actor = new EventActor(this.endpoint, this.channelId, {
-      ...options,
-      secret: this.secret,
+    // If options provided, create a new actor with those options
+    if (options && Object.keys(options).length > 0) {
+      const actor = new EventActor(this.endpoint, this.channelId, {
+        ...options,
+        secret: this.secret,
+      });
+      actor.connect();
+      return actor;
+    }
+    // Otherwise use the shared internal actor
+    return this.getOrCreateActor();
+  }
+
+  /**
+   * Stream events for this transaction
+   *
+   * Creates an actor internally and yields events from the transaction's channel.
+   *
+   * @example
+   * ```typescript
+   * for await (const event of tx.events()) {
+   *   if (event.type === 'payment:settled') {
+   *     await tx.send('order:completed', { orderId: tx.id });
+   *     break;
+   *   }
+   * }
+   * ```
+   */
+  async *events(options: { signal?: AbortSignal } = {}): AsyncGenerator<ChannelEvent> {
+    const actor = this.getOrCreateActor();
+    yield* actor.events(options);
+  }
+
+  /**
+   * Attach data to this transaction's channel
+   *
+   * Creates an actor internally if not already created.
+   * The server will create a signed receipt JWT and emit a transaction:completed event.
+   *
+   * @example
+   * ```typescript
+   * await tx.attach({ orderId: tx.id, trackingNumber: '...' });
+   * ```
+   */
+  async attach<T = unknown>(data: T): Promise<ChannelEvent<T>> {
+    // Post directly to attachments endpoint (no type needed)
+    const url = `${this.endpoint}/payment/v1/channels/${encodeURIComponent(this.channelId)}/attachments`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.secret}`,
+      },
+      body: JSON.stringify(data),
     });
-    actor.connect();
-    return actor;
+
+    if (!response.ok) {
+      const errorData = (await response.json().catch(() => ({}))) as { message?: string };
+      throw new ChannelError(
+        errorData.message || `Failed to attach data: ${response.status}`,
+        response.status === 401 ? 'UNAUTHORIZED' : 'ATTACH_FAILED',
+      );
+    }
+
+    return response.json() as Promise<ChannelEvent<T>>;
   }
 }
 
@@ -882,18 +1193,27 @@ export class EventReceiver {
       params.set('token', this.secret);
     }
     const url = `${this.endpoint}/payment/v1/channels/transactions?${params.toString()}`;
+    console.log('[MoneyMQ SDK] Processor connecting to:', url);
 
     this.eventSource = new EventSource(url);
 
     this.eventSource.onopen = () => {
+      console.log('[MoneyMQ SDK] Processor connected, ready to receive transactions');
       this.setState('connected');
       this.reconnectAttempts = 0;
       this.connectionHandlers.forEach((h) => h());
     };
 
+    // Listen for any message event (for debugging)
+    this.eventSource.onmessage = (event: MessageEvent) => {
+      console.log('[MoneyMQ SDK] Received generic message:', event.data);
+    };
+
     this.eventSource.addEventListener('transaction', (event: MessageEvent) => {
+      console.log('[MoneyMQ SDK] Received transaction event:', event.data);
       try {
         const txData = JSON.parse(event.data as string) as Transaction;
+        console.log('[MoneyMQ SDK] Parsed transaction:', txData.id, txData.channelId);
         const tx = new TransactionContext(txData, this.endpoint, this.secret ?? '');
         this.transactionHandlers.forEach(({ handler, consoleLog }) => {
           // Temporarily restore the console.log that was active when handler was registered
@@ -912,11 +1232,13 @@ export class EventReceiver {
       }
     });
 
-    this.eventSource.onerror = () => {
+    this.eventSource.onerror = (err) => {
+      console.log('[MoneyMQ SDK] Processor connection error:', err);
       this.eventSource?.close();
       this.eventSource = null;
 
       if (this.options.autoReconnect && this.shouldReconnect()) {
+        console.log('[MoneyMQ SDK] Will reconnect...');
         this.scheduleReconnect();
       } else {
         this.setState('disconnected');
@@ -937,6 +1259,168 @@ export class EventReceiver {
     this.setState('disconnected');
     this.reconnectAttempts = 0;
     this.disconnectionHandlers.forEach((h) => h());
+  }
+
+  /**
+   * Stream transactions as an async iterable
+   *
+   * Automatically connects and yields messages until disconnected or aborted.
+   *
+   * @example
+   * ```typescript
+   * const receiver = moneymq.payment.processor();
+   *
+   * for await (const message of receiver.stream()) {
+   *   if (message.type === 'transaction') {
+   *     const tx = message.transaction;
+   *     console.log('New transaction:', tx.id);
+   *
+   *     const actor = tx.actor();
+   *     // Handle the transaction...
+   *   } else if (message.type === 'state') {
+   *     console.log('State:', message.state);
+   *   } else if (message.type === 'error') {
+   *     console.error('Error:', message.error);
+   *   }
+   * }
+   * ```
+   */
+  async *stream(options: StreamOptions = {}): AsyncGenerator<ReceiverStreamMessage> {
+    const { signal, includeState = true, includeErrors = true } = options;
+
+    // Queue to buffer messages between push and pull
+    const queue: ReceiverStreamMessage[] = [];
+    let resolve: (() => void) | null = null;
+    let done = false;
+
+    const push = (message: ReceiverStreamMessage) => {
+      queue.push(message);
+      if (resolve) {
+        resolve();
+        resolve = null;
+      }
+    };
+
+    // Register internal handlers
+    const transactionHandler: TransactionHandler = (tx) => {
+      // Pass the TransactionContext directly so actor() method is available
+      push({
+        type: 'transaction',
+        transaction: tx,
+      });
+    };
+
+    const connectedHandler = () => {
+      if (includeState) {
+        push({ type: 'state', state: 'connected' });
+      }
+    };
+
+    const disconnectedHandler = () => {
+      if (includeState) {
+        push({ type: 'state', state: 'disconnected' });
+      }
+      done = true;
+      if (resolve) {
+        resolve();
+        resolve = null;
+      }
+    };
+
+    const errorHandler = (error: ChannelError) => {
+      if (includeErrors) {
+        push({ type: 'error', error });
+      }
+    };
+
+    // Handle abort signal
+    const abortHandler = () => {
+      done = true;
+      if (resolve) {
+        resolve();
+        resolve = null;
+      }
+    };
+
+    signal?.addEventListener('abort', abortHandler);
+
+    // Subscribe to handlers
+    const unsubTransaction = this.on('transaction', transactionHandler);
+    const unsubConnected = this.on('connected', connectedHandler);
+    const unsubDisconnected = this.on('disconnected', disconnectedHandler);
+    const unsubError = this.on('error', errorHandler);
+
+    // Auto-connect if not connected
+    if (this.state === 'disconnected') {
+      if (includeState) {
+        push({ type: 'state', state: 'connecting' });
+      }
+      this.connect();
+    }
+
+    try {
+      while (!done) {
+        // Yield all queued messages
+        while (queue.length > 0) {
+          yield queue.shift()!;
+        }
+
+        // Wait for new messages if not done
+        if (!done) {
+          await new Promise<void>((r) => {
+            resolve = r;
+          });
+        }
+      }
+
+      // Yield remaining messages
+      while (queue.length > 0) {
+        yield queue.shift()!;
+      }
+    } finally {
+      // Cleanup
+      signal?.removeEventListener('abort', abortHandler);
+      unsubTransaction();
+      unsubConnected();
+      unsubDisconnected();
+      unsubError();
+
+      // Disconnect if we were the ones who connected
+      if (this.eventSource) {
+        this.disconnect();
+      }
+    }
+  }
+
+  /**
+   * Stream transactions directly as an async iterable
+   *
+   * Simpler API that only yields transactions, ignoring state/error messages.
+   * Automatically connects and yields until disconnected or aborted.
+   *
+   * @example
+   * ```typescript
+   * const processor = moneymq.payment.processor();
+   *
+   * for await (const tx of processor.transactions()) {
+   *   console.log('New transaction:', tx.id, tx.payment?.amount);
+   *
+   *   const actor = tx.actor();
+   *   for await (const event of actor.events()) {
+   *     if (event.type === 'payment:settled') {
+   *       await actor.send('order:completed', { orderId: tx.id });
+   *       break;
+   *     }
+   *   }
+   * }
+   * ```
+   */
+  async *transactions(options: { signal?: AbortSignal } = {}): AsyncGenerator<TransactionWithActor> {
+    for await (const message of this.stream({ ...options, includeState: false, includeErrors: false })) {
+      if (message.type === 'transaction') {
+        yield message.transaction;
+      }
+    }
   }
 
   private setState(state: ConnectionState): void {

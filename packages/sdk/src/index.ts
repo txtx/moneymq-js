@@ -108,7 +108,16 @@ export type {
   ActorOptions,
   ReceiverOptions,
   Transaction,
+  TransactionWithActor,
   TransactionHandler,
+  // Stream message types (for async iteration)
+  EventStreamMessage,
+  StateStreamMessage,
+  ErrorStreamMessage,
+  TransactionStreamMessage,
+  ChannelStreamMessage,
+  ReceiverStreamMessage,
+  StreamOptions,
 } from './channels';
 
 // Channel ID utilities
