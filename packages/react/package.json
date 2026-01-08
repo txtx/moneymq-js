@@ -1,6 +1,6 @@
 {
   "name": "@moneymq/react",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "MoneyMQ React components for accepting stablecoin payments",
   "type": "module",
   "main": "./dist/index.cjs",

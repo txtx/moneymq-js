@@ -1,6 +1,6 @@
 {
   "name": "@moneymq/sdk",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "MoneyMQ SDK for accepting stablecoin payments",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
