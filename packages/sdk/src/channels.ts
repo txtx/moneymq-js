@@ -76,8 +76,88 @@ interface EventListenerOptions {
 }
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+/**
+ * Known event types for payment channels
+ */
+export const EventTypes = {
+  /** Payment has been verified */
+  PAYMENT_VERIFIED: 'payment:verified',
+  /** Payment has been settled */
+  PAYMENT_SETTLED: 'payment:settled',
+  /** Payment verification failed */
+  PAYMENT_VERIFICATION_FAILED: 'payment:verification_failed',
+  /** Payment settlement failed */
+  PAYMENT_SETTLEMENT_FAILED: 'payment:settlement_failed',
+  /** Payment failed (generic) */
+  PAYMENT_FAILED: 'payment:failed',
+  /** New transaction received (for processors) */
+  TRANSACTION: 'transaction',
+  /** Processor attaching data to transaction */
+  TRANSACTION_ATTACH: 'transaction:attach',
+  /** Transaction completed with receipt */
+  TRANSACTION_COMPLETED: 'transaction:completed',
+} as const;
+
+/**
+ * Payment defaults
+ */
+export const Defaults = {
+  /** Default JWT expiration time in hours */
+  JWT_EXPIRATION_HOURS: 24,
+  /** Default currency code */
+  CURRENCY: 'USDC',
+  /** Default network (lowercase) */
+  NETWORK: 'solana',
+} as const;
+
+// ============================================================================
 // Types
 // ============================================================================
+
+/**
+ * Product feature definition
+ */
+export interface ProductFeature {
+  /** Feature display name */
+  name?: string;
+  /** Feature description */
+  description?: string;
+  /** Feature value (can be bool, number, string, etc.) */
+  value?: unknown;
+}
+
+/**
+ * Basket item representing a product in a transaction
+ */
+export interface BasketItem {
+  /** Product ID from catalog */
+  productId: string;
+  /** Experiment variant ID (e.g., "surfnet-lite#a") */
+  experimentId?: string;
+  /** Product features (capabilities and limits purchased) */
+  features?: Record<string, ProductFeature> | unknown;
+  /** Quantity of items */
+  quantity?: number;
+}
+
+/**
+ * Payment details from x402 payment
+ */
+export interface PaymentDetails {
+  /** Payer address/wallet */
+  payer: string;
+  /** Transaction ID/signature */
+  transactionId: string;
+  /** Payment amount as string */
+  amount: string;
+  /** Currency code (e.g., "USDC") */
+  currency: string;
+  /** Network name (e.g., "solana") */
+  network: string;
+}
 
 /**
  * Channel event envelope
@@ -159,12 +239,10 @@ export interface Transaction {
   id: string;
   /** Channel ID for this transaction */
   channelId: string;
-  /** Payment amount in smallest unit */
-  amount: number;
-  /** Currency code */
-  currency: string;
-  /** Product ID if available */
-  productId?: string;
+  /** Basket items (products being purchased with features) */
+  basket: BasketItem[];
+  /** Payment details from x402 */
+  payment?: PaymentDetails;
   /** Custom metadata */
   metadata?: Record<string, unknown>;
 }
@@ -544,7 +622,7 @@ export class EventActor extends BaseChannel {
    * @returns The created event
    */
   async send<T = unknown>(type: string, data: T): Promise<ChannelEvent<T>> {
-    const url = `${this.endpoint}/payment/v1/channels/${encodeURIComponent(this.channelId)}/events`;
+    const url = `${this.endpoint}/payment/v1/channels/${encodeURIComponent(this.channelId)}/attachments`;
 
     const response = await fetch(url, {
       method: 'POST',
@@ -577,9 +655,8 @@ export class EventActor extends BaseChannel {
 class TransactionContext implements Transaction {
   id: string;
   channelId: string;
-  amount: number;
-  currency: string;
-  productId?: string;
+  basket: BasketItem[];
+  payment?: PaymentDetails;
   metadata?: Record<string, unknown>;
 
   private endpoint: string;
@@ -588,12 +665,53 @@ class TransactionContext implements Transaction {
   constructor(data: Transaction, endpoint: string, secret: string) {
     this.id = data.id;
     this.channelId = data.channelId;
-    this.amount = data.amount;
-    this.currency = data.currency;
-    this.productId = data.productId;
+    this.basket = data.basket ?? [];
+    this.payment = data.payment;
     this.metadata = data.metadata;
     this.endpoint = endpoint;
     this.secret = secret;
+  }
+
+  /**
+   * Get the payment amount as string (from payment details)
+   */
+  get amount(): string {
+    return this.payment?.amount ?? '0';
+  }
+
+  /**
+   * Get the currency (from payment details)
+   */
+  get currency(): string {
+    return this.payment?.currency ?? Defaults.CURRENCY;
+  }
+
+  /**
+   * Get the first product ID from basket (convenience method)
+   */
+  get productId(): string | undefined {
+    return this.basket[0]?.productId;
+  }
+
+  /**
+   * Get the payer address (from payment details)
+   */
+  get payer(): string | undefined {
+    return this.payment?.payer;
+  }
+
+  /**
+   * Get the network (from payment details)
+   */
+  get network(): string | undefined {
+    return this.payment?.network;
+  }
+
+  /**
+   * Get features for the first product in basket (convenience method)
+   */
+  get features(): Record<string, ProductFeature> | unknown | undefined {
+    return this.basket[0]?.features;
   }
 
   /**
