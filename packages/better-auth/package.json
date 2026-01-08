@@ -1,6 +1,6 @@
 {
   "name": "@moneymq/better-auth",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "description": "Better Auth plugin for MoneyMQ stablecoin payments",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
