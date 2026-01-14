@@ -8,8 +8,8 @@ MoneyMQ provides a pub/sub event system over Server-Sent Events (SSE) that enabl
 
 - **Channels**: Named streams of events scoped to transactions or custom identifiers
 - **Reader**: Subscribe-only client for frontend applications
-- **Actor**: Subscribe + publish client for backend applications
-- **Receiver**: Meta-listener that spawns actors for each new transaction
+- **PaymentHook**: Subscribe + publish client for backend applications
+- **PaymentStream**: Meta-listener that spawns hooks for each new transaction
 
 ## Architecture
 
@@ -29,7 +29,7 @@ MoneyMQ provides a pub/sub event system over Server-Sent Events (SSE) that enabl
         ┌────────────────────┼────────────────────┐
         │                    │                    │
    ┌────┴────┐         ┌─────┴─────┐        ┌────┴────┐
-   │ Reader  │         │   Actor   │        │ Reader  │
+   │ Reader  │         │   Hook    │        │ Reader  │
    │ (SSE)   │         │ (SSE+HTTP)│        │ (SSE)   │
    └─────────┘         └───────────┘        └─────────┘
     Frontend             Backend             Frontend
@@ -80,7 +80,7 @@ reader.connect();
 reader.disconnect();
 ```
 
-### Actor (Backend - Subscribe + Publish)
+### PaymentHook (Backend - Subscribe + Attach)
 
 ```typescript
 import { MoneyMQ } from '@moneymq/sdk';
@@ -89,19 +89,19 @@ const moneymq = new MoneyMQ({
   endpoint: 'http://localhost:8488',
 });
 
-// Create an actor for a specific channel (requires secret)
-const actor = moneymq.events.actor('order-abc123', {
+// Create a hook for a specific channel (requires secret)
+const hook = moneymq.events.hook('order-abc123', {
   secret: process.env.MONEYMQ_SECRET,
 });
 
 // With replay
-const actor = moneymq.events.actor('order-abc123', {
+const hook = moneymq.events.hook('order-abc123', {
   secret: process.env.MONEYMQ_SECRET,
   replay: 10,
 });
 
 // Subscribe to payment events
-actor.on('payment:verified', async (event) => {
+hook.on('payment:verified', async (event) => {
   await db.orders.create({
     id: event.data.metadata?.orderId,
     payer: event.data.payer,
@@ -109,25 +109,25 @@ actor.on('payment:verified', async (event) => {
   });
 });
 
-actor.on('payment:settled', async (event) => {
+hook.on('payment:settled', async (event) => {
   const order = await db.orders.update(event.data.metadata?.orderId, {
     status: 'paid',
   });
 
   const shipment = await shipOrder(order);
 
-  // Publish event to channel - all readers/actors receive it
-  await actor.send('order:completed', {
+  // Attach fulfillment data - server creates signed receipt
+  await hook.attach('fulfillment', {
     orderId: order.id,
     trackingNumber: shipment.tracking,
     estimatedDelivery: shipment.eta,
   });
 });
 
-actor.connect();
+hook.connect();
 ```
 
-### Receiver (Backend - Transaction Spawner)
+### PaymentStream (Backend - Transaction Spawner)
 
 ```typescript
 import { MoneyMQ } from '@moneymq/sdk';
@@ -136,32 +136,32 @@ const moneymq = new MoneyMQ({
   endpoint: 'http://localhost:8488',
 });
 
-// Create a receiver that listens for new transactions
-const receiver = moneymq.events.receiver({
+// Create a payment stream that listens for new transactions
+const stream = moneymq.payment.paymentStream({
   secret: process.env.MONEYMQ_SECRET,
 });
 
 // Called for each new transaction
-receiver.on('transaction', (tx) => {
-  console.log('New transaction:', tx.id, tx.amount, tx.productId);
+stream.on('transaction', (tx) => {
+  console.log('New transaction:', tx.id, tx.payment?.amount, tx.basket[0]?.productId);
 
-  // Get an actor scoped to this transaction's channel
-  const actor = tx.actor();
+  // Get a hook scoped to this transaction's channel
+  const hook = tx.hook();
 
-  actor.on('payment:verified', async (event) => {
+  hook.on('payment:verified', async (event) => {
     // Handle verification
   });
 
-  actor.on('payment:settled', async (event) => {
+  hook.on('payment:settled', async (event) => {
     // Handle settlement
-    await actor.send('order:completed', { ... });
+    await hook.attach('fulfillment', { orderId: tx.id });
   });
 
-  // Actor auto-connects when created from transaction
+  // Hook auto-connects when created from transaction
 });
 
 // Connect to start receiving transactions
-receiver.connect();
+stream.connect();
 ```
 
 ## Event Types
@@ -174,14 +174,14 @@ receiver.connect();
 | `payment:settled` | Payment settled to recipient | `PaymentSettledData` |
 | `payment:failed` | Payment failed | `PaymentFailedData` |
 
-### Custom Events (from Actor)
+### Fulfillment Data (from PaymentHook)
 
-Actors can send arbitrary event types with custom payloads:
+Hooks attach fulfillment data that gets included in signed receipts:
 
 ```typescript
-actor.send('order:completed', { orderId, trackingNumber });
-actor.send('subscription:renewed', { subscriptionId, nextBillingDate });
-actor.send('download:ready', { url, expiresAt });
+hook.attach('fulfillment', { orderId, trackingNumber });
+hook.attach('subscription', { subscriptionId, nextBillingDate });
+hook.attach('download', { url, expiresAt });
 ```
 
 ## Transport
@@ -245,23 +245,22 @@ interface ReaderOptions {
   replay?: number;
 }
 
-interface ActorOptions extends ReaderOptions {
+interface PaymentHookOptions extends ReaderOptions {
   secret: string;
 }
 
-interface ReceiverOptions {
+interface PaymentStreamOptions {
   secret: string;
 }
 
-// Transaction from receiver
-interface Transaction {
+// Transaction from payment stream
+interface TransactionWithHook {
   id: string;
   channelId: string;
-  amount: number;
-  currency: string;
-  productId?: string;
+  basket: BasketItem[];
+  payment?: PaymentDetails;
   metadata?: Record<string, unknown>;
-  actor(): EventActor;
+  hook(): PaymentHook;
 }
 
 // Event envelope
@@ -336,30 +335,30 @@ reader.on('error', (error) => {
    - Connection state management
    - Auto-reconnection
 
-2. **EventActor** - Extends reader with publish
+2. **PaymentHook** - Extends reader with attach
    - Everything from EventReader
-   - `send(type, data)` - HTTP POST to channel
+   - `attach(key, data)` - HTTP POST to attachments endpoint
    - Authorization header handling
 
-3. **EventReceiver** - Transaction listener
-   - SSE subscription to `/events/transactions`
+3. **PaymentStream** - Transaction listener
+   - SSE subscription to `/payment/v1/channels/transactions`
    - `on('transaction', handler)`
-   - Factory for creating scoped actors
+   - Factory for creating scoped hooks
 
 ### Phase 2: Integration
 
 4. **MoneyMQ Client Updates**
    - Add `events.reader(channelId, options?)`
-   - Add `events.actor(channelId, options)`
-   - Add `events.receiver(options)`
-   - Deprecate `events.stream()` (keep for backward compat)
+   - Add `events.hook(channelId, options)`
+   - Add `payment.paymentStream(options)`
+   - Deprecate legacy `events.stream()` (keep for backward compat)
 
 ### Phase 3: Testing
 
 5. **Unit Tests**
    - EventReader connection lifecycle
-   - EventActor send method
-   - EventReceiver transaction handling
+   - PaymentHook attach method
+   - PaymentStream transaction handling
    - Error handling scenarios
 
 ### Phase 4: Documentation

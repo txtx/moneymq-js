@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   EventReader,
-  EventActor,
-  EventReceiver,
+  PaymentHook,
+  PaymentStream,
   ChannelError,
   createEventReader,
-  createEventActor,
-  createEventReceiver,
+  createPaymentHook,
+  createPaymentStream,
+  TransactionWithHook,
 } from './channels';
 
 // Mock EventSource
@@ -211,37 +212,37 @@ describe('EventReader', () => {
   });
 });
 
-describe('EventActor', () => {
+describe('PaymentHook', () => {
   const endpoint = 'http://localhost:8488';
   const channelId = 'test-channel';
   const secret = 'test-secret';
 
   it('should include auth token in URL', () => {
-    const actor = new EventActor(endpoint, channelId, { secret });
-    actor.connect();
+    const hook = new PaymentHook(endpoint, channelId, { secret });
+    hook.connect();
 
-    const es = (actor as unknown as { eventSource: MockEventSource }).eventSource;
+    const es = (hook as unknown as { eventSource: MockEventSource }).eventSource;
     expect(es.url).toContain('token=test-secret');
   });
 
-  it('should send events via HTTP POST', async () => {
+  it('should attach data via HTTP POST', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: () =>
         Promise.resolve({
           id: 'evt_456',
-          type: 'order:completed',
+          type: 'transaction:attach',
           data: { orderId: '123' },
           time: new Date().toISOString(),
         }),
     });
 
-    const actor = new EventActor(endpoint, channelId, { secret });
+    const hook = new PaymentHook(endpoint, channelId, { secret, actorId: 'actor_123' });
 
-    const result = await actor.send('order:completed', { orderId: '123' });
+    const result = await hook.attach('fulfillment', { orderId: '123' });
 
     expect(mockFetch).toHaveBeenCalledWith(
-      `${endpoint}/payment/v1/channels/${channelId}/events`,
+      `${endpoint}/payment/v1/channels/${channelId}/attachments`,
       expect.objectContaining({
         method: 'POST',
         headers: {
@@ -249,7 +250,8 @@ describe('EventActor', () => {
           Authorization: `Bearer ${secret}`,
         },
         body: JSON.stringify({
-          type: 'order:completed',
+          actor_id: 'actor_123',
+          key: 'fulfillment',
           data: { orderId: '123' },
         }),
       }),
@@ -258,22 +260,22 @@ describe('EventActor', () => {
     expect(result).toEqual(
       expect.objectContaining({
         id: 'evt_456',
-        type: 'order:completed',
+        type: 'transaction:attach',
         data: { orderId: '123' },
       }),
     );
   });
 
-  it('should throw ChannelError on send failure', async () => {
+  it('should throw ChannelError on attach failure', async () => {
     mockFetch.mockResolvedValue({
       ok: false,
       status: 401,
       json: () => Promise.resolve({ message: 'Unauthorized' }),
     });
 
-    const actor = new EventActor(endpoint, channelId, { secret });
+    const hook = new PaymentHook(endpoint, channelId, { secret, actorId: 'actor_123' });
 
-    await expect(actor.send('test', {})).rejects.toThrow(ChannelError);
+    await expect(hook.attach('test', {})).rejects.toThrow(ChannelError);
 
     // Reset and test again for the code check
     mockFetch.mockResolvedValue({
@@ -282,7 +284,7 @@ describe('EventActor', () => {
       json: () => Promise.resolve({ message: 'Unauthorized' }),
     });
 
-    await expect(actor.send('test', {})).rejects.toMatchObject({
+    await expect(hook.attach('test', {})).rejects.toMatchObject({
       code: 'UNAUTHORIZED',
     });
   });
@@ -294,66 +296,63 @@ describe('EventActor', () => {
       json: () => Promise.resolve({ message: 'Server error' }),
     });
 
-    const actor = new EventActor(endpoint, channelId, { secret });
+    const hook = new PaymentHook(endpoint, channelId, { secret, actorId: 'actor_123' });
 
-    await expect(actor.send('test', {})).rejects.toMatchObject({
-      code: 'SEND_FAILED',
+    await expect(hook.attach('test', {})).rejects.toMatchObject({
+      code: 'ATTACH_FAILED',
     });
   });
 });
 
-describe('EventReceiver', () => {
+describe('PaymentStream', () => {
   const endpoint = 'http://localhost:8488';
   const secret = 'test-secret';
 
   it('should connect to transactions endpoint', () => {
-    const receiver = new EventReceiver(endpoint, { secret });
-    receiver.connect();
+    const stream = new PaymentStream(endpoint, { secret });
+    stream.connect();
 
-    const es = (receiver as unknown as { eventSource: MockEventSource }).eventSource;
+    const es = (stream as unknown as { eventSource: MockEventSource }).eventSource;
     expect(es.url).toBe(`${endpoint}/payment/v1/channels/transactions?token=${secret}`);
   });
 
   it('should handle transaction events', async () => {
-    const receiver = new EventReceiver(endpoint, { secret });
+    const stream = new PaymentStream(endpoint, { secret });
     const handler = vi.fn();
 
-    receiver.on('transaction', handler);
-    receiver.connect();
+    stream.on('transaction', handler);
+    stream.connect();
 
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    const es = (receiver as unknown as { eventSource: MockEventSource }).eventSource;
+    const es = (stream as unknown as { eventSource: MockEventSource }).eventSource;
     es._emit('transaction', {
       id: 'tx_123',
       channelId: 'order-123',
-      amount: 1000,
-      currency: 'usd',
+      basket: [],
     });
 
     expect(handler).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 'tx_123',
         channelId: 'order-123',
-        amount: 1000,
-        currency: 'usd',
       }),
     );
   });
 
-  it('should create actor from transaction context', async () => {
-    const receiver = new EventReceiver(endpoint, { secret });
-    let createdActor: EventActor | null = null;
+  it('should create hook from transaction context', async () => {
+    const stream = new PaymentStream(endpoint, { secret });
+    let createdHook: PaymentHook | null = null;
 
-    receiver.on('transaction', (tx) => {
-      createdActor = tx.actor();
+    stream.on('transaction', (tx: TransactionWithHook) => {
+      createdHook = tx.hook();
     });
 
-    receiver.connect();
+    stream.connect();
 
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    const es = (receiver as unknown as { eventSource: MockEventSource }).eventSource;
+    const es = (stream as unknown as { eventSource: MockEventSource }).eventSource;
     es._emit('transaction', {
       id: 'tx_123',
       channelId: 'order-123',
@@ -361,12 +360,12 @@ describe('EventReceiver', () => {
       currency: 'usd',
     });
 
-    expect(createdActor).toBeInstanceOf(EventActor);
-    expect(createdActor!.isConnected).toBe(false); // Will be connected async
+    expect(createdHook).toBeInstanceOf(PaymentHook);
+    expect(createdHook!.isConnected).toBe(false); // Will be connected async
 
-    // Wait for actor connection
+    // Wait for hook connection
     await new Promise((resolve) => setTimeout(resolve, 10));
-    expect(createdActor!.isConnected).toBe(true);
+    expect(createdHook!.isConnected).toBe(true);
   });
 });
 
@@ -378,14 +377,14 @@ describe('Factory functions', () => {
     expect(reader).toBeInstanceOf(EventReader);
   });
 
-  it('createEventActor should create EventActor', () => {
-    const actor = createEventActor(endpoint, 'channel-1', { secret: 'secret' });
-    expect(actor).toBeInstanceOf(EventActor);
+  it('createPaymentHook should create PaymentHook', () => {
+    const hook = createPaymentHook(endpoint, 'channel-1', { secret: 'secret' });
+    expect(hook).toBeInstanceOf(PaymentHook);
   });
 
-  it('createEventReceiver should create EventReceiver', () => {
-    const receiver = createEventReceiver(endpoint, { secret: 'secret' });
-    expect(receiver).toBeInstanceOf(EventReceiver);
+  it('createPaymentStream should create PaymentStream', () => {
+    const stream = createPaymentStream(endpoint, { secret: 'secret' });
+    expect(stream).toBeInstanceOf(PaymentStream);
   });
 });
 

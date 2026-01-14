@@ -1,6 +1,13 @@
 import type { MoneyMQConfig } from './client';
-import { fetchConfig, type ServerConfig } from './config';
+import { fetchPaymentConfig, type PaymentConfig } from './config';
 import { createSigner, type Signer } from 'x402-fetch';
+
+/**
+ * Normalize RPC URL for browser access (0.0.0.0 doesn't work in browsers)
+ */
+function normalizeRpcUrl(url: string): string {
+  return url.replace('0.0.0.0', 'localhost').replace('127.0.0.1', 'localhost');
+}
 
 /**
  * Parameters for getting a signer by tag
@@ -28,7 +35,7 @@ export interface X402ClientConfig {
 }
 
 /**
- * Response structure from /sandbox/accounts endpoint
+ * Response structure from /accounts endpoint
  */
 interface SandboxAccountsResponse {
   [network: string]: {
@@ -76,7 +83,7 @@ interface SandboxAccountsResponse {
  * ```
  */
 export class X402API {
-  private serverConfig: ServerConfig | null = null;
+  private paymentConfig: PaymentConfig | null = null;
   private sandboxAccounts: SandboxAccountsResponse | null = null;
 
   constructor(private config: MoneyMQConfig) {}
@@ -89,7 +96,7 @@ export class X402API {
       return this.sandboxAccounts;
     }
 
-    const response = await fetch(`${this.config.endpoint}/sandbox/accounts`);
+    const response = await fetch(`${this.config.endpoint}/payment/v1/accounts`);
     if (!response.ok) {
       throw new Error(`Failed to fetch sandbox accounts: ${response.status}`);
     }
@@ -113,7 +120,12 @@ export class X402API {
     const accounts = await this.fetchSandboxAccounts();
 
     // Search through all networks for an account with matching label
+    // Skip non-network entries (like 'operators' array)
     for (const networkData of Object.values(accounts)) {
+      // Skip if not a network object (must have userAccounts array)
+      if (!networkData || typeof networkData !== 'object' || !Array.isArray(networkData.userAccounts)) {
+        continue;
+      }
       for (const account of networkData.userAccounts) {
         if (account.label === params.tag) {
           if (!account.secretKeyHex) {
@@ -140,27 +152,28 @@ export class X402API {
    * ```
    */
   async getConfig(): Promise<X402ClientConfig> {
-    // Cache the server config
-    if (!this.serverConfig) {
-      this.serverConfig = await fetchConfig(this.config.endpoint);
+    // Cache the payment config (with studio attrs for RPC URL)
+    if (!this.paymentConfig) {
+      this.paymentConfig = await fetchPaymentConfig(this.config.endpoint, true);
     }
 
+    const rawRpcUrl = this.paymentConfig.studio?.rpcUrl || 'https://api.devnet.solana.com';
     return {
       svmConfig: {
-        rpcUrl: this.serverConfig.x402.validator.rpcUrl,
+        rpcUrl: normalizeRpcUrl(rawRpcUrl),
       },
     };
   }
 
   /**
-   * Get the full server configuration
+   * Get the full payment configuration
    *
-   * @returns The complete server configuration including x402 settings
+   * @returns The complete payment configuration including x402 settings
    */
-  async getServerConfig(): Promise<ServerConfig> {
-    if (!this.serverConfig) {
-      this.serverConfig = await fetchConfig(this.config.endpoint);
+  async getPaymentConfig(): Promise<PaymentConfig> {
+    if (!this.paymentConfig) {
+      this.paymentConfig = await fetchPaymentConfig(this.config.endpoint, true);
     }
-    return this.serverConfig;
+    return this.paymentConfig;
   }
 }

@@ -130,20 +130,27 @@ const noWalletsStyle: React.CSSProperties = {
 };
 
 export function WalletModal({ visible, onClose, branding }: WalletModalProps) {
-  const { wallets, select } = useConnector();
+  const { wallets, select, selectedWallet, connected } = useConnector();
   const [hoveredWallet, setHoveredWallet] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
 
   const accentColor = branding?.accentColor || '#ec4899';
 
+  // Helper to check if a wallet is the connected one
+  const isWalletConnected = useCallback((wallet: ConnectorWallet) => {
+    return connected && selectedWallet?.name === wallet.wallet.name;
+  }, [connected, selectedWallet]);
+
   // Sort wallets - connected first, then by name
   const sortedWallets = useMemo(() => {
     return [...wallets].sort((a, b) => {
-      if (a.connected && !b.connected) return -1;
-      if (!a.connected && b.connected) return 1;
+      const aConnected = isWalletConnected(a);
+      const bConnected = isWalletConnected(b);
+      if (aConnected && !bConnected) return -1;
+      if (!aConnected && bConnected) return 1;
       return a.wallet.name.localeCompare(b.wallet.name);
     });
-  }, [wallets]);
+  }, [wallets, isWalletConnected]);
 
   const handleSelect = useCallback(async (wallet: ConnectorWallet) => {
     setConnecting(true);
@@ -245,7 +252,7 @@ export function WalletModal({ visible, onClose, branding }: WalletModalProps) {
                       style={walletIconStyle}
                     />
                     <span style={walletNameStyle}>{wallet.wallet.name}</span>
-                    {wallet.connected ? (
+                    {isWalletConnected(wallet) ? (
                       <span style={{ ...walletTagStyle, backgroundColor: accentColor + '20', color: accentColor }}>
                         Connected
                       </span>

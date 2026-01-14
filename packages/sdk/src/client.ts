@@ -4,11 +4,11 @@ import { X402API } from './x402';
 import { EventStream, EventStreamOptions } from './events';
 import {
   EventReader,
-  EventActor,
-  EventReceiver,
+  PaymentHook,
+  PaymentStream,
   ReaderOptions,
-  ActorOptions,
-  ReceiverOptions,
+  PaymentHookOptions,
+  PaymentStreamOptions,
 } from './channels';
 
 /**
@@ -79,7 +79,7 @@ export class MoneyMQ {
   public readonly x402: X402API;
 
   /** Events API for real-time SSE streams
-   * @deprecated Use `payment.processor()` and `payment.listener()` instead
+   * @deprecated Use `payment.paymentStream()` and `payment.listener()` instead
    */
   public readonly events: {
     /**
@@ -90,23 +90,23 @@ export class MoneyMQ {
     reader: (channelId: string, options?: ReaderOptions) => EventReader;
 
     /**
-     * Create an event actor (subscribe + publish)
+     * Create a payment hook (subscribe + publish)
      *
-     * @deprecated Use `payment.processor()` with `tx.actor()` instead
+     * @deprecated Use `payment.paymentStream()` with `tx.hook()` instead
      */
-    actor: (channelId: string, options?: ActorOptions) => EventActor;
+    hook: (channelId: string, options?: PaymentHookOptions) => PaymentHook;
 
     /**
-     * Create an event receiver (transaction spawner)
+     * Create a payment stream (transaction spawner)
      *
-     * @deprecated Use `payment.processor()` instead
+     * @deprecated Use `payment.paymentStream()` instead
      */
-    receiver: (options?: ReceiverOptions) => EventReceiver;
+    paymentStream: (options?: PaymentStreamOptions) => PaymentStream;
 
     /**
      * Create a new event stream connection
      *
-     * @deprecated Use `payment.processor()` instead
+     * @deprecated Use `payment.paymentStream()` instead
      */
     stream: (options?: EventStreamOptions) => EventStream;
   };
@@ -128,13 +128,13 @@ export class MoneyMQ {
     this.events = {
       reader: (channelId: string, options?: ReaderOptions) =>
         new EventReader(this.config.endpoint, channelId, options),
-      actor: (channelId: string, options?: ActorOptions) =>
-        new EventActor(this.config.endpoint, channelId, {
+      hook: (channelId: string, options?: PaymentHookOptions) =>
+        new PaymentHook(this.config.endpoint, channelId, {
           ...options,
           secret: options?.secret ?? this.config.secret,
         }),
-      receiver: (options?: ReceiverOptions) =>
-        new EventReceiver(this.config.endpoint, {
+      paymentStream: (options?: PaymentStreamOptions) =>
+        new PaymentStream(this.config.endpoint, {
           ...options,
           secret: options?.secret ?? this.config.secret,
         }),

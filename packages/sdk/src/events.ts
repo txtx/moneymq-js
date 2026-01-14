@@ -1,3 +1,5 @@
+import { PAYMENT_API_PATH } from './config';
+
 /**
  * Server-Sent Events (SSE) helpers for MoneyMQ real-time events
  *
@@ -200,13 +202,37 @@ export interface PaymentSettlementFailedData {
 }
 
 /**
+ * Transaction completed event data
+ * This is emitted when a transaction is fully complete (settled and all attachments received)
+ */
+export interface TransactionCompletedData {
+  /** Transaction ID (payment_hash) */
+  transaction_id: string;
+  /** JWT receipt token containing payment claims */
+  receipt: string;
+  /** Wallet address of the payer */
+  payer: string;
+  /** Payment amount */
+  amount: string;
+  /** Currency code */
+  currency: string;
+  /** Network name */
+  network: string;
+  /** Transaction signature on-chain */
+  transaction_signature: string | null;
+  /** Product ID if applicable */
+  product_id: string | null;
+}
+
+/**
  * All MoneyMQ event types
  */
 export type MoneyMQEventType =
   | 'mq.money.payment.verification.succeeded'
   | 'mq.money.payment.verification.failed'
   | 'mq.money.payment.settlement.succeeded'
-  | 'mq.money.payment.settlement.failed';
+  | 'mq.money.payment.settlement.failed'
+  | 'mq.money.transaction.completed';
 
 /**
  * Event type to data type mapping
@@ -216,6 +242,7 @@ export interface MoneyMQEventMap {
   'mq.money.payment.verification.failed': PaymentVerificationFailedData;
   'mq.money.payment.settlement.succeeded': PaymentSettlementSucceededData;
   'mq.money.payment.settlement.failed': PaymentSettlementFailedData;
+  'mq.money.transaction.completed': TransactionCompletedData;
 }
 
 /**
@@ -233,9 +260,14 @@ export type PaymentSettlementEvent =
   | CloudEventEnvelope<PaymentSettlementFailedData>;
 
 /**
+ * Transaction completed event
+ */
+export type TransactionCompletedEvent = CloudEventEnvelope<TransactionCompletedData>;
+
+/**
  * Any payment event
  */
-export type PaymentEvent = PaymentVerificationEvent | PaymentSettlementEvent;
+export type PaymentEvent = PaymentVerificationEvent | PaymentSettlementEvent | TransactionCompletedEvent;
 
 // ============================================================================
 // Event Stream Options
@@ -542,7 +574,9 @@ export class EventStream {
     }
 
     const queryString = params.toString();
-    return queryString ? `${this.endpoint}/events?${queryString}` : `${this.endpoint}/events`;
+    return queryString
+      ? `${this.endpoint}${PAYMENT_API_PATH}/events?${queryString}`
+      : `${this.endpoint}${PAYMENT_API_PATH}/events`;
   }
 
   private setState(state: EventStreamState): void {
@@ -646,6 +680,15 @@ export function isPaymentSettlementFailed(
 }
 
 /**
+ * Check if an event is a transaction completed event
+ */
+export function isTransactionCompleted(
+  event: PaymentEvent,
+): event is CloudEventEnvelope<TransactionCompletedData> {
+  return event.type === 'mq.money.transaction.completed';
+}
+
+/**
  * Parse a raw SSE data string into a CloudEvent
  *
  * @param data - Raw event data string from SSE
@@ -701,5 +744,7 @@ export function buildEventStreamUrl(
   }
 
   const queryString = params.toString();
-  return queryString ? `${endpoint}/events?${queryString}` : `${endpoint}/events`;
+  return queryString
+    ? `${endpoint}${PAYMENT_API_PATH}/events?${queryString}`
+    : `${endpoint}${PAYMENT_API_PATH}/events`;
 }

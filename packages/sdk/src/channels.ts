@@ -1,5 +1,5 @@
 /**
- * MoneyMQ Channel API - Listener, Processor, and Actor patterns
+ * MoneyMQ Channel API - Listener, PaymentStream, and PaymentHook patterns
  *
  * Provides pub/sub event communication over SSE with optional publish capability.
  *
@@ -10,16 +10,16 @@
  * listener.connect();
  * ```
  *
- * @example Processor (backend - transaction spawner)
+ * @example PaymentStream (backend - transaction spawner)
  * ```typescript
- * const processor = moneymq.payment.processor();
- * processor.on('transaction', (tx) => {
- *   const actor = tx.actor();
- *   actor.on('payment:settled', async (event) => {
- *     await actor.send('order:completed', { ... });
+ * const stream = moneymq.payment.paymentStream();
+ * stream.on('transaction', (tx) => {
+ *   const hook = tx.hook();
+ *   hook.on('payment:settled', async (event) => {
+ *     await hook.attach('fulfillment', { orderId: tx.id });
  *   });
  * });
- * processor.connect();
+ * stream.connect();
  * ```
  */
 
@@ -210,19 +210,23 @@ export interface ReaderOptions {
 }
 
 /**
- * Actor options (subscribe + publish)
+ * PaymentHook options (subscribe + publish)
  */
-export interface ActorOptions extends ReaderOptions {
+export interface PaymentHookOptions extends ReaderOptions {
   /** Secret for authorization (uses client secret if not provided) */
   secret?: string;
+  /** Actor ID for identifying this hook in attachments (required for attach) */
+  actorId?: string;
 }
 
 /**
- * Receiver options (transaction listener)
+ * PaymentStream options (transaction listener)
  */
-export interface ReceiverOptions {
+export interface PaymentStreamOptions {
   /** Secret for authorization (uses client secret if not provided) */
   secret?: string;
+  /** Actor ID for identifying this hook in attachments (required for attach) */
+  actorId?: string;
   /** Auto-reconnect on disconnect */
   autoReconnect?: boolean;
   /** Reconnect delay in ms */
@@ -289,35 +293,38 @@ export interface ErrorStreamMessage {
 }
 
 /**
- * Transaction with actor factory method and convenience methods
+ * Transaction with hook factory method and convenience methods
  */
-export interface TransactionWithActor extends Transaction {
-  /** Create an actor scoped to this transaction's channel */
-  actor(options?: Omit<ActorOptions, 'secret'>): EventActor;
+export interface TransactionWithHook extends Transaction {
+  /** Create a hook scoped to this transaction's channel */
+  hook(options?: Omit<PaymentHookOptions, 'secret'>): PaymentHook;
 
   /**
    * Stream events for this transaction
    *
-   * Creates an actor internally and yields events from the transaction's channel.
+   * Creates a hook internally and yields events from the transaction's channel.
    */
   events(options?: { signal?: AbortSignal }): AsyncGenerator<ChannelEvent>;
 
   /**
    * Attach data to this transaction's channel
    *
-   * Creates an actor internally if not already created.
+   * Creates a hook internally if not already created.
    * The server will create a signed receipt JWT and emit a transaction:completed event.
+   *
+   * @param key - Attachment key identifying this fulfillment (e.g., 'fulfillment', 'surfnet')
+   * @param data - Data to attach
    */
-  attach<T = unknown>(data: T): Promise<ChannelEvent<T>>;
+  attach<T = unknown>(key: string, data: T): Promise<ChannelEvent<T>>;
 }
 
 /**
- * Transaction message (for receivers)
- * Note: The transaction has an actor() method to create a scoped EventActor
+ * Transaction message (for payment streams)
+ * Note: The transaction has a hook() method to create a scoped PaymentHook
  */
 export interface TransactionStreamMessage {
   type: 'transaction';
-  transaction: TransactionWithActor;
+  transaction: TransactionWithHook;
 }
 
 /**
@@ -790,40 +797,42 @@ export class EventReader extends BaseChannel {
 }
 
 // ============================================================================
-// EventActor Class
+// PaymentHook Class
 // ============================================================================
 
 /**
- * Event actor - subscribe + publish channel connection
+ * Payment hook - subscribe + publish channel connection
  *
- * Use for backend applications that need to receive events and publish responses.
+ * Use for backend applications that need to receive events and attach fulfillment data.
  *
  * @example
  * ```typescript
- * const actor = new EventActor('http://localhost:8488', 'order-123', {
+ * const hook = new PaymentHook('http://localhost:8488', 'order-123', {
  *   secret: 'your-secret'
  * });
  *
- * actor.on('payment:settled', async (event) => {
+ * hook.on('payment:settled', async (event) => {
  *   // Process the payment
  *   const order = await processOrder(event.data);
  *
- *   // Publish completion event to all channel subscribers
- *   await actor.send('order:completed', {
+ *   // Attach fulfillment data - server creates signed receipt
+ *   await hook.attach('fulfillment', {
  *     orderId: order.id,
  *     trackingNumber: order.tracking
  *   });
  * });
  *
- * actor.connect();
+ * hook.connect();
  * ```
  */
-export class EventActor extends BaseChannel {
+export class PaymentHook extends BaseChannel {
   private secret?: string;
+  private actorId?: string;
 
-  constructor(endpoint: string, channelId: string, options: ActorOptions) {
+  constructor(endpoint: string, channelId: string, options: PaymentHookOptions) {
     super(endpoint, channelId, options);
     this.secret = options.secret;
+    this.actorId = options.actorId;
   }
 
   protected buildUrl(): string {
@@ -849,15 +858,20 @@ export class EventActor extends BaseChannel {
   }
 
   /**
-   * Publish an event to the channel
+   * Attach data to the channel
    *
-   * All connected readers and actors on this channel will receive the event.
+   * The server will create a signed receipt JWT and emit a transaction:completed event.
+   * Attachments are stored as: attachments[actorId][key] = data
    *
-   * @param type - Event type (e.g., 'order:completed')
-   * @param data - Event payload
+   * @param key - Attachment key identifying this fulfillment (e.g., 'fulfillment', 'surfnet')
+   * @param data - Data to attach
    * @returns The created event
    */
-  async send<T = unknown>(type: string, data: T): Promise<ChannelEvent<T>> {
+  async attach<T = unknown>(key: string, data: T): Promise<ChannelEvent<T>> {
+    if (!this.actorId) {
+      throw new ChannelError('Actor ID is required to attach data', 'MISSING_ACTOR_ID');
+    }
+
     const url = `${this.endpoint}/payment/v1/channels/${encodeURIComponent(this.channelId)}/attachments`;
 
     const response = await fetch(url, {
@@ -866,14 +880,14 @@ export class EventActor extends BaseChannel {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${this.secret}`,
       },
-      body: JSON.stringify({ type, data }),
+      body: JSON.stringify({ actor_id: this.actorId, key, data }),
     });
 
     if (!response.ok) {
       const errorData = (await response.json().catch(() => ({}))) as { message?: string };
       throw new ChannelError(
-        errorData.message || `Failed to send event: ${response.status}`,
-        response.status === 401 ? 'UNAUTHORIZED' : 'SEND_FAILED',
+        errorData.message || `Failed to attach data: ${response.status}`,
+        response.status === 401 ? 'UNAUTHORIZED' : 'ATTACH_FAILED',
       );
     }
 
@@ -882,13 +896,13 @@ export class EventActor extends BaseChannel {
 }
 
 // ============================================================================
-// EventReceiver Class
+// PaymentStream Class
 // ============================================================================
 
 /**
- * Transaction wrapper for receiver callbacks
+ * Transaction wrapper for payment stream callbacks
  */
-class TransactionContext implements TransactionWithActor {
+class TransactionContext implements TransactionWithHook {
   id: string;
   channelId: string;
   basket: BasketItem[];
@@ -897,9 +911,10 @@ class TransactionContext implements TransactionWithActor {
 
   private endpoint: string;
   private secret: string;
-  private _actor: EventActor | null = null;
+  private actorId?: string;
+  private _hook: PaymentHook | null = null;
 
-  constructor(data: Transaction, endpoint: string, secret: string) {
+  constructor(data: Transaction, endpoint: string, secret: string, actorId?: string) {
     this.id = data.id;
     this.channelId = data.channelId;
     this.basket = data.basket ?? [];
@@ -907,19 +922,21 @@ class TransactionContext implements TransactionWithActor {
     this.metadata = data.metadata;
     this.endpoint = endpoint;
     this.secret = secret;
+    this.actorId = actorId;
   }
 
   /**
-   * Get or create the internal actor (lazy initialization)
+   * Get or create the internal hook (lazy initialization)
    */
-  private getOrCreateActor(): EventActor {
-    if (!this._actor) {
-      this._actor = new EventActor(this.endpoint, this.channelId, {
+  private getOrCreateHook(): PaymentHook {
+    if (!this._hook) {
+      this._hook = new PaymentHook(this.endpoint, this.channelId, {
         secret: this.secret,
+        actorId: this.actorId,
       });
-      this._actor.connect();
+      this._hook.connect();
     }
-    return this._actor;
+    return this._hook;
   }
 
   /**
@@ -965,58 +982,66 @@ class TransactionContext implements TransactionWithActor {
   }
 
   /**
-   * Create an actor scoped to this transaction's channel
+   * Create a hook scoped to this transaction's channel
    *
-   * The actor is automatically connected.
-   * Note: If you use events() or send() methods, they share the same internal actor.
+   * The hook is automatically connected.
+   * Note: If you use events() or attach() methods, they share the same internal hook.
    */
-  actor(options?: Omit<ActorOptions, 'secret'>): EventActor {
-    // If options provided, create a new actor with those options
+  hook(options?: Omit<PaymentHookOptions, 'secret' | 'actorId'>): PaymentHook {
+    // If options provided, create a new hook with those options
     if (options && Object.keys(options).length > 0) {
-      const actor = new EventActor(this.endpoint, this.channelId, {
+      const hook = new PaymentHook(this.endpoint, this.channelId, {
         ...options,
         secret: this.secret,
+        actorId: this.actorId,
       });
-      actor.connect();
-      return actor;
+      hook.connect();
+      return hook;
     }
-    // Otherwise use the shared internal actor
-    return this.getOrCreateActor();
+    // Otherwise use the shared internal hook
+    return this.getOrCreateHook();
   }
 
   /**
    * Stream events for this transaction
    *
-   * Creates an actor internally and yields events from the transaction's channel.
+   * Creates a hook internally and yields events from the transaction's channel.
    *
    * @example
    * ```typescript
    * for await (const event of tx.events()) {
    *   if (event.type === 'payment:settled') {
-   *     await tx.send('order:completed', { orderId: tx.id });
+   *     await tx.attach('fulfillment', { orderId: tx.id });
    *     break;
    *   }
    * }
    * ```
    */
   async *events(options: { signal?: AbortSignal } = {}): AsyncGenerator<ChannelEvent> {
-    const actor = this.getOrCreateActor();
-    yield* actor.events(options);
+    const hook = this.getOrCreateHook();
+    yield* hook.events(options);
   }
 
   /**
    * Attach data to this transaction's channel
    *
-   * Creates an actor internally if not already created.
+   * Creates a hook internally if not already created.
    * The server will create a signed receipt JWT and emit a transaction:completed event.
+   * Attachments are stored as: attachments[actorId][key] = data
+   *
+   * @param key - Attachment key identifying this fulfillment (e.g., 'fulfillment', 'surfnet')
+   * @param data - Data to attach
    *
    * @example
    * ```typescript
-   * await tx.attach({ orderId: tx.id, trackingNumber: '...' });
+   * await tx.attach('fulfillment', { orderId: tx.id, trackingNumber: '...' });
    * ```
    */
-  async attach<T = unknown>(data: T): Promise<ChannelEvent<T>> {
-    // Post directly to attachments endpoint (no type needed)
+  async attach<T = unknown>(key: string, data: T): Promise<ChannelEvent<T>> {
+    if (!this.actorId) {
+      throw new ChannelError('Actor ID is required to attach data', 'MISSING_ACTOR_ID');
+    }
+
     const url = `${this.endpoint}/payment/v1/channels/${encodeURIComponent(this.channelId)}/attachments`;
 
     const response = await fetch(url, {
@@ -1025,7 +1050,7 @@ class TransactionContext implements TransactionWithActor {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${this.secret}`,
       },
-      body: JSON.stringify(data),
+      body: JSON.stringify({ actor_id: this.actorId, key, data }),
     });
 
     if (!response.ok) {
@@ -1046,33 +1071,34 @@ class TransactionContext implements TransactionWithActor {
 export type TransactionHandler = (tx: TransactionContext) => void | Promise<void>;
 
 /**
- * Event receiver - listens for new transactions and spawns actors
+ * Payment stream - listens for new transactions and spawns hooks
  *
  * Use for backend applications that need to handle multiple concurrent transactions.
  *
  * @example
  * ```typescript
- * const receiver = new EventReceiver('http://localhost:8488', {
+ * const stream = new PaymentStream('http://localhost:8488', {
  *   secret: 'your-secret'
  * });
  *
- * receiver.on('transaction', (tx) => {
+ * stream.on('transaction', (tx) => {
  *   console.log('New transaction:', tx.id);
  *
- *   const actor = tx.actor();
+ *   const hook = tx.hook();
  *
- *   actor.on('payment:settled', async (event) => {
+ *   hook.on('payment:settled', async (event) => {
  *     await processPayment(event.data);
- *     await actor.send('order:completed', { orderId: tx.id });
+ *     await hook.attach('fulfillment', { orderId: tx.id });
  *   });
  * });
  *
- * receiver.connect();
+ * stream.connect();
  * ```
  */
-export class EventReceiver {
+export class PaymentStream {
   private endpoint: string;
   private secret?: string;
+  private actorId?: string;
   private options: {
     autoReconnect: boolean;
     reconnectDelay: number;
@@ -1088,9 +1114,10 @@ export class EventReceiver {
   private disconnectionHandlers: Set<ConnectionHandler> = new Set();
   private errorHandlers: Set<ChannelErrorHandler> = new Set();
 
-  constructor(endpoint: string, options: ReceiverOptions = {}) {
+  constructor(endpoint: string, options: PaymentStreamOptions = {}) {
     this.endpoint = endpoint;
     this.secret = options.secret;
+    this.actorId = options.actorId;
     this.options = {
       autoReconnect: options.autoReconnect ?? true,
       reconnectDelay: options.reconnectDelay ?? 1000,
@@ -1193,12 +1220,12 @@ export class EventReceiver {
       params.set('token', this.secret);
     }
     const url = `${this.endpoint}/payment/v1/channels/transactions?${params.toString()}`;
-    console.log('[MoneyMQ SDK] Processor connecting to:', url);
+    console.log('[MoneyMQ SDK] PaymentStream connecting to:', url);
 
     this.eventSource = new EventSource(url);
 
     this.eventSource.onopen = () => {
-      console.log('[MoneyMQ SDK] Processor connected, ready to receive transactions');
+      console.log('[MoneyMQ SDK] PaymentStream connected, ready to receive transactions');
       this.setState('connected');
       this.reconnectAttempts = 0;
       this.connectionHandlers.forEach((h) => h());
@@ -1214,7 +1241,7 @@ export class EventReceiver {
       try {
         const txData = JSON.parse(event.data as string) as Transaction;
         console.log('[MoneyMQ SDK] Parsed transaction:', txData.id, txData.channelId);
-        const tx = new TransactionContext(txData, this.endpoint, this.secret ?? '');
+        const tx = new TransactionContext(txData, this.endpoint, this.secret ?? '', this.actorId);
         this.transactionHandlers.forEach(({ handler, consoleLog }) => {
           // Temporarily restore the console.log that was active when handler was registered
           const prevLog = console.log;
@@ -1233,7 +1260,7 @@ export class EventReceiver {
     });
 
     this.eventSource.onerror = (err) => {
-      console.log('[MoneyMQ SDK] Processor connection error:', err);
+      console.log('[MoneyMQ SDK] PaymentStream connection error:', err);
       this.eventSource?.close();
       this.eventSource = null;
 
@@ -1268,14 +1295,14 @@ export class EventReceiver {
    *
    * @example
    * ```typescript
-   * const receiver = moneymq.payment.processor();
+   * const stream = moneymq.payment.paymentStream();
    *
-   * for await (const message of receiver.stream()) {
+   * for await (const message of stream.stream()) {
    *   if (message.type === 'transaction') {
    *     const tx = message.transaction;
    *     console.log('New transaction:', tx.id);
    *
-   *     const actor = tx.actor();
+   *     const hook = tx.hook();
    *     // Handle the transaction...
    *   } else if (message.type === 'state') {
    *     console.log('State:', message.state);
@@ -1303,7 +1330,7 @@ export class EventReceiver {
 
     // Register internal handlers
     const transactionHandler: TransactionHandler = (tx) => {
-      // Pass the TransactionContext directly so actor() method is available
+      // Pass the TransactionContext directly so hook() method is available
       push({
         type: 'transaction',
         transaction: tx,
@@ -1400,22 +1427,22 @@ export class EventReceiver {
    *
    * @example
    * ```typescript
-   * const processor = moneymq.payment.processor();
+   * const stream = moneymq.payment.paymentStream();
    *
-   * for await (const tx of processor.transactions()) {
+   * for await (const tx of stream.transactions()) {
    *   console.log('New transaction:', tx.id, tx.payment?.amount);
    *
-   *   const actor = tx.actor();
-   *   for await (const event of actor.events()) {
+   *   const hook = tx.hook();
+   *   for await (const event of hook.events()) {
    *     if (event.type === 'payment:settled') {
-   *       await actor.send('order:completed', { orderId: tx.id });
+   *       await hook.attach('fulfillment', { orderId: tx.id });
    *       break;
    *     }
    *   }
    * }
    * ```
    */
-  async *transactions(options: { signal?: AbortSignal } = {}): AsyncGenerator<TransactionWithActor> {
+  async *transactions(options: { signal?: AbortSignal } = {}): AsyncGenerator<TransactionWithHook> {
     for await (const message of this.stream({ ...options, includeState: false, includeErrors: false })) {
       if (message.type === 'transaction') {
         yield message.transaction;
@@ -1470,19 +1497,19 @@ export function createEventReader(
 }
 
 /**
- * Create an event actor
+ * Create a payment hook
  */
-export function createEventActor(
+export function createPaymentHook(
   endpoint: string,
   channelId: string,
-  options: ActorOptions,
-): EventActor {
-  return new EventActor(endpoint, channelId, options);
+  options: PaymentHookOptions,
+): PaymentHook {
+  return new PaymentHook(endpoint, channelId, options);
 }
 
 /**
- * Create an event receiver
+ * Create a payment stream
  */
-export function createEventReceiver(endpoint: string, options: ReceiverOptions): EventReceiver {
-  return new EventReceiver(endpoint, options);
+export function createPaymentStream(endpoint: string, options: PaymentStreamOptions): PaymentStream {
+  return new PaymentStream(endpoint, options);
 }

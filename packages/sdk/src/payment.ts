@@ -1,9 +1,9 @@
 import type { MoneyMQConfig } from './client';
 import {
   EventReader,
-  EventReceiver,
+  PaymentStream,
   ReaderOptions,
-  ReceiverOptions,
+  PaymentStreamOptions,
 } from './channels';
 
 // Types
@@ -482,22 +482,22 @@ export class PaymentAPI {
    *
    * @example
    * ```typescript
-   * const processor = moneymq.payment.processor();
+   * const stream = moneymq.payment.paymentStream();
    *
-   * processor.on('transaction', (tx) => {
-   *   const actor = tx.actor();
+   * stream.on('transaction', (tx) => {
+   *   const hook = tx.hook();
    *
-   *   actor.on('payment:settled', async (event) => {
+   *   hook.on('payment:settled', async (event) => {
    *     await processPayment(event.data);
-   *     await actor.send('order:completed', { orderId: tx.id });
+   *     await hook.attach('fulfillment', { orderId: tx.id });
    *   });
    * });
    *
-   * processor.connect();
+   * stream.connect();
    * ```
    */
-  processor(options?: ReceiverOptions): EventReceiver {
-    return new EventReceiver(this.config.endpoint, {
+  paymentStream(options?: PaymentStreamOptions): PaymentStream {
+    return new PaymentStream(this.config.endpoint, {
       ...options,
       secret: options?.secret ?? this.config.secret,
     });

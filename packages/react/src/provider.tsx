@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { AppProvider, getDefaultConfig } from '@solana/connector';
+import type { PaymentConfig } from '@moneymq/sdk';
 import type { Branding } from './wallet-modal-provider';
 
 // MoneyMQ client interface (matches @moneymq/sdk)
@@ -44,15 +45,6 @@ export const SandboxContext = createContext<SandboxContextState>({
 });
 
 const DEFAULT_RPC_URL = 'https://api.devnet.solana.com';
-const SANDBOX_HASH_PREFIX = 'SURFNETxSAFEHASH';
-
-interface ServerConfigResponse {
-  x402?: {
-    validator?: {
-      rpcUrl?: string;
-    };
-  };
-}
 
 interface SandboxAccountsResponse {
   solana?: {
@@ -75,48 +67,33 @@ function normalizeRpcUrl(url: string): string {
 }
 
 /**
- * Get RPC URL from MoneyMQ server config
+ * Fetch facilitator config from /payment/v1/config endpoint
+ * Uses attrs=studio to include RPC/WS URLs
  */
-async function getRpcUrl(apiUrl: string): Promise<string> {
+async function getFacilitatorConfig(
+  apiUrl: string,
+): Promise<{ isSandbox: boolean; rpcUrl: string }> {
   try {
-    console.log('[MoneyMQ] Fetching config from:', `${apiUrl}/config`);
-    const response = await fetch(`${apiUrl}/config`);
-    const config = (await response.json()) as ServerConfigResponse;
-    const rawRpcUrl = config.x402?.validator?.rpcUrl || DEFAULT_RPC_URL;
-    console.log('[MoneyMQ] Raw RPC URL from config:', rawRpcUrl);
+    const configUrl = `${apiUrl}/payment/v1/config?attrs=studio`;
+    console.log('[MoneyMQ] Fetching facilitator config from:', configUrl);
+    const response = await fetch(configUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch config: ${response.status}`);
+    }
+    const config = (await response.json()) as PaymentConfig;
+    const rawRpcUrl = config.studio?.rpcUrl || DEFAULT_RPC_URL;
     const normalizedUrl = normalizeRpcUrl(rawRpcUrl);
-    console.log('[MoneyMQ] Normalized RPC URL:', normalizedUrl);
-    return normalizedUrl;
+    console.log('[MoneyMQ] Facilitator config:', { isSandbox: config.isSandbox, rpcUrl: normalizedUrl });
+    return {
+      isSandbox: config.isSandbox,
+      rpcUrl: normalizedUrl,
+    };
   } catch (err) {
-    console.error('[MoneyMQ] Error fetching config:', err);
-    return DEFAULT_RPC_URL;
-  }
-}
-
-/**
- * Check if we're in sandbox mode by calling getLatestBlockhash RPC
- */
-async function checkSandboxMode(rpcUrl: string): Promise<boolean> {
-  try {
-    console.log('[MoneyMQ] Checking sandbox mode with RPC:', rpcUrl);
-    const response = await fetch(rpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'getLatestBlockhash',
-        params: [{ commitment: 'finalized' }],
-      }),
-    });
-    const data = await response.json();
-    const blockhash = data?.result?.value?.blockhash || '';
-    const isSandbox = blockhash.startsWith(SANDBOX_HASH_PREFIX);
-    console.log('[MoneyMQ] Blockhash:', blockhash, '| Sandbox:', isSandbox);
-    return isSandbox;
-  } catch (err) {
-    console.error('[MoneyMQ] Error checking sandbox mode:', err);
-    return false;
+    console.error('[MoneyMQ] Error fetching facilitator config:', err);
+    return {
+      isSandbox: false,
+      rpcUrl: DEFAULT_RPC_URL,
+    };
   }
 }
 
@@ -150,8 +127,8 @@ async function fetchTokenBalance(rpcUrl: string, tokenAccountAddress: string): P
  */
 async function fetchSandboxAccounts(apiUrl: string, rpcUrl: string): Promise<SandboxAccount[]> {
   try {
-    console.log('[MoneyMQ] Fetching sandbox accounts from:', `${apiUrl}/sandbox/accounts`);
-    const response = await fetch(`${apiUrl}/sandbox/accounts`);
+    console.log('[MoneyMQ] Fetching sandbox accounts from:', `${apiUrl}/payment/v1/accounts`);
+    const response = await fetch(`${apiUrl}/payment/v1/accounts`);
     if (!response.ok) {
       console.log('[MoneyMQ] Sandbox accounts fetch failed:', response.status);
       return [];
@@ -174,7 +151,7 @@ async function fetchSandboxAccounts(apiUrl: string, rpcUrl: string): Promise<San
             stablecoins: acc.stablecoins,
             usdcBalance,
           };
-        })
+        }),
       );
       console.log('[MoneyMQ] Sandbox accounts loaded:', accounts.length);
       return accounts;
@@ -198,22 +175,16 @@ export function useSandbox(): SandboxContextState {
   return useContext(SandboxContext);
 }
 
-export function MoneyMQProvider({
-  children,
-  client,
-  branding,
-}: MoneyMQProviderProps) {
+export function MoneyMQProvider({ children, client, branding }: MoneyMQProviderProps) {
   const [rpcEndpoint, setRpcEndpoint] = useState<string | null>(null);
   const [isSandboxMode, setIsSandboxMode] = useState(false);
   const [sandboxAccounts, setSandboxAccounts] = useState<SandboxAccount[]>([]);
 
   useEffect(() => {
     async function initialize() {
-      const rpcUrl = await getRpcUrl(client.config.endpoint);
+      // Fetch facilitator config (includes sandbox mode and RPC URL)
+      const { isSandbox, rpcUrl } = await getFacilitatorConfig(client.config.endpoint);
       setRpcEndpoint(rpcUrl);
-
-      // Check if we're in sandbox mode
-      const isSandbox = await checkSandboxMode(rpcUrl);
       setIsSandboxMode(isSandbox);
 
       // If in sandbox mode, fetch sandbox accounts
@@ -226,24 +197,23 @@ export function MoneyMQProvider({
   }, [client.config.endpoint]);
 
   const connectorConfig = useMemo(
-    () => getDefaultConfig({
-      appName: 'MoneyMQ Checkout',
-      autoConnect: true,
-    }),
-    []
+    () =>
+      getDefaultConfig({
+        appName: 'MoneyMQ Checkout',
+        autoConnect: true,
+      }),
+    [],
   );
 
   const sandboxContextValue = useMemo(
     () => ({ isSandboxMode, sandboxAccounts }),
-    [isSandboxMode, sandboxAccounts]
+    [isSandboxMode, sandboxAccounts],
   );
 
   return (
     <MoneyMQContext.Provider value={client}>
       <SandboxContext.Provider value={sandboxContextValue}>
-        <AppProvider connectorConfig={connectorConfig}>
-          {children}
-        </AppProvider>
+        <AppProvider connectorConfig={connectorConfig}>{children}</AppProvider>
       </SandboxContext.Provider>
     </MoneyMQContext.Provider>
   );

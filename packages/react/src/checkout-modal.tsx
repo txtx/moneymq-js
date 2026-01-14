@@ -8,12 +8,12 @@ import { useMoneyMQ, useSandbox, type SandboxAccount } from './provider';
 import logoAnimation from './assets/logo-animation.json';
 import {
   EventStream,
-  EventReader,
   CheckoutReceipt,
   isPaymentSettlementSucceeded,
+  isTransactionCompleted,
   type PaymentSettlementSucceededData,
+  type TransactionCompletedData,
   type CloudEventEnvelope,
-  type ChannelEvent,
 } from '@moneymq/sdk';
 
 // Wallet type for connector
@@ -244,6 +244,7 @@ function waitForSettlementEvent(
   return new Promise((resolve, reject) => {
     console.log('[MoneyMQ] Waiting for settlement event for intent:', paymentIntentId);
 
+    // Use replay to catch events that may have been emitted before we connected
     const stream = new EventStream(apiUrl, { last: 5 });
     let settled = false;
 
@@ -283,54 +284,55 @@ function waitForSettlementEvent(
   });
 }
 
-// Wait for a specific event type on a channel using EventReader
-function waitForChannelEvent<T = unknown>(
+// Wait for transaction:completed CloudEvent via SSE
+function waitForTransactionCompleted(
   apiUrl: string,
-  channelId: string,
-  eventType: string,
+  transactionId: string,
   timeoutMs: number = 30000,
-): Promise<ChannelEvent<T>> {
+): Promise<CloudEventEnvelope<TransactionCompletedData>> {
   return new Promise((resolve, reject) => {
-    console.log('[MoneyMQ] Waiting for channel event:', eventType, 'on channel:', channelId);
+    console.log('[MoneyMQ] Waiting for transaction:completed event for tx:', transactionId);
 
-    // Use EventReader with replay to catch events we might have missed
-    const reader = new EventReader(apiUrl, channelId, { replay: 10 });
+    // Use replay to catch the event that was just emitted
+    // We filter by transaction_id to ensure we get the right one
+    const stream = new EventStream(apiUrl, { last: 5 });
     let resolved = false;
 
     const cleanup = () => {
       if (!resolved) {
-        reader.disconnect();
+        stream.disconnect();
       }
     };
 
     const timeout = setTimeout(() => {
       cleanup();
-      reject(new Error(`Channel event timeout waiting for ${eventType}`));
+      reject(new Error('Transaction completed event timeout'));
     }, timeoutMs);
 
-    reader.on(eventType, (event: ChannelEvent<T>) => {
-      console.log('[MoneyMQ] Channel event received:', eventType);
-      resolved = true;
-      clearTimeout(timeout);
-      reader.disconnect();
-      resolve(event);
+    stream.on('payment', (event) => {
+      console.log('[MoneyMQ] Received event while waiting for transaction:completed:', event.type);
+
+      if (isTransactionCompleted(event)) {
+        // Match the transaction_id to ensure this is for the current payment
+        if (event.data.transaction_id === transactionId) {
+          console.log('[MoneyMQ] Transaction completed event received for tx:', transactionId);
+          resolved = true;
+          clearTimeout(timeout);
+          stream.disconnect();
+          resolve(event);
+        } else {
+          console.log('[MoneyMQ] Transaction completed event for different tx:', event.data.transaction_id);
+        }
+      }
     });
 
-    reader.on('error', (error) => {
-      console.error('[MoneyMQ] Channel reader error:', error);
+    stream.on('error', (error) => {
+      console.error('[MoneyMQ] Stream error while waiting for transaction:completed:', error);
       // Don't reject on stream errors, just log - the timeout will handle failures
     });
 
-    reader.connect();
+    stream.connect();
   });
-}
-
-/** Data from transaction:completed channel event */
-interface TransactionCompletedData {
-  /** JWT receipt token */
-  receipt?: string;
-  /** Raw processor data */
-  processorData?: Record<string, unknown>;
 }
 
 // Payment method types
@@ -660,10 +662,10 @@ export function CheckoutModal({
         if (currentSelection?.type === 'browser_extension' && publicKey) {
           const apiUrl = normalizeRpcUrl(client.config.endpoint);
           try {
-            const configResponse = await fetch(`${apiUrl}/config`);
+            const configResponse = await fetch(`${apiUrl}/payment/v1/config?attrs=studio`);
             const config = await configResponse.json();
             const rpcUrl = normalizeRpcUrl(
-              config.x402?.validator?.rpcUrl || 'http://localhost:8899',
+              config.studio?.rpcUrl || 'http://localhost:8899',
             );
 
             // Fetch USDC token account balance
@@ -735,9 +737,9 @@ export function CheckoutModal({
         // Fetch RPC URL from config
         let rpcUrl = 'http://localhost:8899';
         try {
-          const configResponse = await fetch(`${apiUrl}/config`);
+          const configResponse = await fetch(`${apiUrl}/payment/v1/config?attrs=studio`);
           const config = await configResponse.json();
-          rpcUrl = normalizeRpcUrl(config.x402?.validator?.rpcUrl || rpcUrl);
+          rpcUrl = normalizeRpcUrl(config.studio?.rpcUrl || rpcUrl);
         } catch {
           console.log('[MoneyMQ] Using default RPC URL');
         }
@@ -764,19 +766,10 @@ export function CheckoutModal({
           throw new Error('No transaction ID received from settlement event');
         }
 
-        console.log('[MoneyMQ] Waiting for transaction:completed on channel:', transactionId);
-        const completedEvent = await waitForChannelEvent<TransactionCompletedData>(
-          apiUrl,
-          transactionId,
-          'transaction:completed',
-          30000,
-        );
+        console.log('[MoneyMQ] Waiting for transaction:completed CloudEvent for tx:', transactionId);
+        const completedEvent = await waitForTransactionCompleted(apiUrl, transactionId, 30000);
 
-        const receiptToken = completedEvent.data?.receipt;
-        if (!receiptToken) {
-          throw new Error('No receipt token in transaction:completed event');
-        }
-
+        const receiptToken = completedEvent.data.receipt;
         console.log('[MoneyMQ] Receipt received, creating CheckoutReceipt');
         const receipt = new CheckoutReceipt(receiptToken);
 
@@ -812,19 +805,10 @@ export function CheckoutModal({
         throw new Error('No transaction ID received from settlement event');
       }
 
-      console.log('[MoneyMQ] Waiting for transaction:completed on channel:', transactionId);
-      const completedEvent = await waitForChannelEvent<TransactionCompletedData>(
-        apiUrl,
-        transactionId,
-        'transaction:completed',
-        30000,
-      );
+      console.log('[MoneyMQ] Waiting for transaction:completed CloudEvent for tx:', transactionId);
+      const completedEvent = await waitForTransactionCompleted(apiUrl, transactionId, 30000);
 
-      const receiptToken = completedEvent.data?.receipt;
-      if (!receiptToken) {
-        throw new Error('No receipt token in transaction:completed event');
-      }
-
+      const receiptToken = completedEvent.data.receipt;
       console.log('[MoneyMQ] Receipt received, creating CheckoutReceipt');
       const receipt = new CheckoutReceipt(receiptToken);
 
@@ -856,12 +840,13 @@ export function CheckoutModal({
     !isSending;
 
   const dotLottieRef = useRef<DotLottie | null>(null);
+  const processingLottieRef = useRef<DotLottie | null>(null);
 
-  // Control Lottie animation - play every 3s when canPay
+  // Control Lottie animation - play every 3s when canPay (idle state)
   useEffect(() => {
     if (!dotLottieRef.current) return;
 
-    if (canPay) {
+    if (canPay && !isSending) {
       // Play immediately, then every 3 seconds
       dotLottieRef.current.setFrame(0);
       dotLottieRef.current.play();
@@ -875,7 +860,18 @@ export function CheckoutModal({
     } else {
       dotLottieRef.current.stop();
     }
-  }, [canPay]);
+  }, [canPay, isSending]);
+
+  // Control processing Lottie animation - loop at 2x speed when sending
+  useEffect(() => {
+    if (!processingLottieRef.current) return;
+
+    if (isSending) {
+      processingLottieRef.current.setSpeed(2);
+      processingLottieRef.current.setLoop(true);
+      processingLottieRef.current.play();
+    }
+  }, [isSending]);
 
   // SSR check - document not available on server
   if (typeof document === 'undefined') return null;
@@ -1694,7 +1690,7 @@ export function CheckoutModal({
             {/* Pay Button */}
             <button
               onClick={handlePay}
-              disabled={!canPay}
+              disabled={!canPay || isSending}
               style={{
                 width: '100%',
                 padding: '0.5rem 1rem',
@@ -1702,60 +1698,85 @@ export function CheckoutModal({
                 border: 'none',
                 fontSize: '1.0625rem',
                 fontWeight: 600,
-                cursor: canPay ? 'pointer' : 'not-allowed',
-                backgroundColor: canPay ? '#000' : '#48484a',
-                color: canPay ? '#fff' : '#8e8e93',
+                cursor: canPay && !isSending ? 'pointer' : 'not-allowed',
+                backgroundColor: canPay || isSending ? '#000' : '#48484a',
+                color: canPay || isSending ? '#fff' : '#8e8e93',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: '0.25rem',
-                transition: 'opacity 150ms',
+                transition: 'background-color 150ms, color 150ms',
+                position: 'relative',
+                overflow: 'hidden',
               }}
             >
-              {isSending ? (
-                <>
-                  <div
-                    style={{
-                      width: '1.25rem',
-                      height: '1.25rem',
-                      border: '2px solid currentColor',
-                      borderTopColor: 'transparent',
-                      borderRadius: '50%',
-                      animation: 'spin 1s linear infinite',
-                    }}
-                  />
-                  <span>Processing...</span>
-                </>
-              ) : (
-                <>
-                  <DotLottieReact
-                    dotLottieRefCallback={(dotLottie) => {
-                      dotLottieRef.current = dotLottie;
-                    }}
-                    data={JSON.stringify(logoAnimation)}
-                    loop={false}
-                    autoplay={false}
-                    style={{
-                      width: 48,
-                      height: 48,
-                      marginTop: '-8px',
-                      marginBottom: '-8px',
-                      marginLeft: '-8px',
-                      marginRight: '4px',
-                      opacity: canPay ? 1 : 0.55,
-                      transition: 'opacity 150ms',
-                    }}
-                  />
-                  <span>
-                    Pay{' '}
-                    {amount.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}{' '}
-                    {currency}
-                  </span>
-                </>
-              )}
+              {/* Processing state - centered lottie */}
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  opacity: isSending ? 1 : 0,
+                  transform: isSending ? 'scale(1)' : 'scale(0.8)',
+                  transition: 'opacity 200ms ease-out, transform 200ms ease-out',
+                  pointerEvents: 'none',
+                }}
+              >
+                <DotLottieReact
+                  dotLottieRefCallback={(dotLottie) => {
+                    processingLottieRef.current = dotLottie;
+                  }}
+                  data={JSON.stringify(logoAnimation)}
+                  loop={false}
+                  autoplay={false}
+                  style={{
+                    width: 48,
+                    height: 48,
+                  }}
+                />
+              </div>
+
+              {/* Normal state - icon + text */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.25rem',
+                  opacity: isSending ? 0 : 1,
+                  transform: isSending ? 'scale(0.95)' : 'scale(1)',
+                  transition: 'opacity 200ms ease-out, transform 200ms ease-out',
+                }}
+              >
+                <DotLottieReact
+                  dotLottieRefCallback={(dotLottie) => {
+                    dotLottieRef.current = dotLottie;
+                  }}
+                  data={JSON.stringify(logoAnimation)}
+                  loop={false}
+                  autoplay={false}
+                  style={{
+                    width: 48,
+                    height: 48,
+                    marginTop: '-8px',
+                    marginBottom: '-8px',
+                    marginLeft: '-8px',
+                    marginRight: '4px',
+                    opacity: canPay ? 1 : 0.55,
+                    transition: 'opacity 150ms',
+                  }}
+                />
+                <span>
+                  Pay{' '}
+                  {amount.toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}{' '}
+                  {currency}
+                </span>
+              </div>
             </button>
           </div>
         </div>

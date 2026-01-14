@@ -3,7 +3,7 @@
 import React, { forwardRef, useEffect, useState } from 'react';
 import { CheckoutModal } from './checkout-modal';
 import { useMoneyMQ } from './provider';
-import { CheckoutReceipt } from '@moneymq/sdk';
+import { CheckoutReceipt, type PaymentConfig } from '@moneymq/sdk';
 
 /**
  * Represents a completed payment transaction.
@@ -27,15 +27,6 @@ export interface Payment {
   status: 'pending' | 'completed' | 'failed';
   /** Blockchain transaction signature (available after completion) */
   signature?: string;
-}
-
-interface ServerConfig {
-  x402?: {
-    payoutAccount?: {
-      address?: string;
-      currency?: string;
-    };
-  };
 }
 
 /**
@@ -254,19 +245,21 @@ export const CheckoutButton = forwardRef<HTMLButtonElement, CheckoutButtonProps>
 
         try {
           if (!basket || basket.length === 0) {
-            throw new Error('Basket is empty');
+            // Basket not ready yet, wait for it
+            setIsLoading(true);
+            return;
           }
 
           const apiUrl = client.config.endpoint;
 
-          // Fetch server config to get recipient
-          const configResponse = await fetch(`${apiUrl}/config`);
+          // Fetch payment config to get recipient
+          const configResponse = await fetch(`${apiUrl}/payment/v1/config`);
           if (!configResponse.ok) {
             throw new Error(`Failed to fetch config: ${configResponse.status}`);
           }
-          const config = (await configResponse.json()) as ServerConfig;
-          if (config.x402?.payoutAccount?.address) {
-            setRecipient(config.x402.payoutAccount.address);
+          const config = (await configResponse.json()) as PaymentConfig;
+          if (config.x402?.solana?.payout?.recipientAddress) {
+            setRecipient(config.x402.solana.payout.recipientAddress);
           }
         } catch (err) {
           console.error('[CheckoutButton] Error fetching payment details:', err);

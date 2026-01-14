@@ -2,7 +2,11 @@ export { MoneyMQ } from './client';
 export type { MoneyMQConfig } from './client';
 
 // Config utilities
-export { fetchConfig, getRpcUrl } from './config';
+export { fetchPaymentConfig, getRpcUrl } from './config';
+export type { PaymentConfig } from './config';
+
+// Legacy config (deprecated)
+export { fetchConfig } from './config';
 export type { ServerConfig } from './config';
 
 // Catalog types
@@ -56,7 +60,7 @@ export type {
   X402ClientConfig,
 } from './x402';
 
-// Events (SSE) - Legacy API (deprecated, use channels instead)
+// Events (SSE) - CloudEvent streaming via DB polling
 export {
   EventStream,
   createEventStream,
@@ -64,6 +68,7 @@ export {
   isPaymentVerificationFailed,
   isPaymentSettlementSucceeded,
   isPaymentSettlementFailed,
+  isTransactionCompleted,
   parseCloudEvent,
   buildEventStreamUrl,
 } from './events';
@@ -75,10 +80,12 @@ export type {
   PaymentVerificationFailedData,
   PaymentSettlementSucceededData,
   PaymentSettlementFailedData,
+  TransactionCompletedData,
   MoneyMQEventType,
   MoneyMQEventMap,
   PaymentVerificationEvent,
   PaymentSettlementEvent,
+  TransactionCompletedEvent,
   PaymentEvent,
   EventStreamOptions,
   EventStreamState,
@@ -87,15 +94,15 @@ export type {
   StateHandler,
 } from './events';
 
-// Channels (new API) - Reader, Actor, Receiver
+// Channels (new API) - Reader, PaymentHook, PaymentStream
 export {
   EventReader,
-  EventActor,
-  EventReceiver,
+  PaymentHook,
+  PaymentStream,
   ChannelError,
   createEventReader,
-  createEventActor,
-  createEventReceiver,
+  createPaymentHook,
+  createPaymentStream,
 } from './channels';
 
 export type {
@@ -105,10 +112,10 @@ export type {
   ConnectionHandler,
   ChannelErrorHandler,
   ReaderOptions,
-  ActorOptions,
-  ReceiverOptions,
+  PaymentHookOptions,
+  PaymentStreamOptions,
   Transaction,
-  TransactionWithActor,
+  TransactionWithHook,
   TransactionHandler,
   // Stream message types (for async iteration)
   EventStreamMessage,

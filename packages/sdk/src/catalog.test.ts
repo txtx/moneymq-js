@@ -73,6 +73,7 @@ describe('CatalogAPI', () => {
       metadata: {},
       created: Date.now(),
       updated: Date.now(),
+      accessUrl: '/api/products/prod_123',
     };
 
     describe('create', () => {
@@ -164,7 +165,7 @@ describe('CatalogAPI', () => {
         });
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/catalog/v1/products?active=true&limit=10&starting_after=prod_abc',
+          'http://localhost:8488/catalog/v1/products?active=true&limit=10&startingAfter=prod_abc',
           expect.any(Object),
         );
       });

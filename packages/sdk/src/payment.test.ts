@@ -24,7 +24,7 @@ describe('PaymentAPI', () => {
       url: 'https://checkout.moneymq.com/cs_123',
       status: 'open',
       paymentStatus: 'unpaid',
-      lineItems: [{ price: 'price_123', quantity: 1 }],
+      lineItems: [{ productId: 'prod_123', quantity: 1 }],
       successUrl: 'https://example.com/success',
       cancelUrl: 'https://example.com/cancel',
       expiresAt: Date.now() + 3600000,
@@ -39,7 +39,7 @@ describe('PaymentAPI', () => {
         });
 
         const result = await client.payment.checkout.create({
-          lineItems: [{ price: 'price_123', quantity: 1 }],
+          lineItems: [{ productId: 'prod_123', quantity: 1 }],
           successUrl: 'https://example.com/success',
           cancelUrl: 'https://example.com/cancel',
         });
@@ -60,7 +60,7 @@ describe('PaymentAPI', () => {
         });
 
         await client.payment.checkout.create({
-          lineItems: [{ price: 'price_123', quantity: 1 }],
+          lineItems: [{ productId: 'prod_123', quantity: 1 }],
           successUrl: 'https://example.com/success',
           cancelUrl: 'https://example.com/cancel',
           customer: 'cus_123',
@@ -94,7 +94,7 @@ describe('PaymentAPI', () => {
       object: 'payment_link',
       url: 'https://pay.moneymq.com/plink_123',
       active: true,
-      lineItems: [{ price: 'price_123', quantity: 1 }],
+      lineItems: [{ productId: 'prod_123', quantity: 1 }],
       created: Date.now(),
     };
 
@@ -106,7 +106,7 @@ describe('PaymentAPI', () => {
         });
 
         const result = await client.payment.links.create({
-          lineItems: [{ price: 'price_123', quantity: 1 }],
+          lineItems: [{ productId: 'prod_123', quantity: 1 }],
         });
 
         expect(mockFetch).toHaveBeenCalledWith(
@@ -124,7 +124,7 @@ describe('PaymentAPI', () => {
 
         const expiresAt = new Date('2025-12-31');
         await client.payment.links.create({
-          lineItems: [{ price: 'price_123', quantity: 1 }],
+          lineItems: [{ productId: 'prod_123', quantity: 1 }],
           expiresAt,
         });
 
@@ -143,7 +143,7 @@ describe('PaymentAPI', () => {
         });
 
         await client.payment.links.create({
-          lineItems: [{ price: 'price_123', quantity: 1 }],
+          lineItems: [{ productId: 'prod_123', quantity: 1 }],
           expiresAt: 1735689600000,
         });
 
@@ -248,7 +248,7 @@ describe('PaymentAPI', () => {
         await client.payment.customers.retrieve('cus_123', { expand: ['payments'] });
 
         expect(mockFetch).toHaveBeenCalledWith(
-          'http://localhost:8488/payment/customers/cus_123?expand=payments',
+          'http://localhost:8488/payment/v1/customers/cus_123?expand=payments',
           expect.any(Object),
         );
       });
