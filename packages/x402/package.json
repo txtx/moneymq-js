@@ -1,6 +1,6 @@
 {
   "name": "@moneymq/x402",
-  "version": "0.9.4",
+  "version": "0.10.0",
   "description": "x402 protocol integration for MoneyMQ",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
