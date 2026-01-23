@@ -51,7 +51,7 @@ interface SandboxAccountsResponse {
     userAccounts?: Array<{
       address: string;
       label: string;
-      secretKeyHex?: string;
+      secretKey?: string;
       stablecoins?: {
         usdc?: string;
       };
@@ -83,7 +83,10 @@ async function getFacilitatorConfig(
     const config = (await response.json()) as PaymentConfig;
     const rawRpcUrl = config.studio?.rpcUrl || DEFAULT_RPC_URL;
     const normalizedUrl = normalizeRpcUrl(rawRpcUrl);
-    console.log('[MoneyMQ] Facilitator config:', { isSandbox: config.isSandbox, rpcUrl: normalizedUrl });
+    console.log('[MoneyMQ] Facilitator config:', {
+      isSandbox: config.isSandbox,
+      rpcUrl: normalizedUrl,
+    });
     return {
       isSandbox: config.isSandbox,
       rpcUrl: normalizedUrl,
@@ -147,7 +150,7 @@ async function fetchSandboxAccounts(apiUrl: string, rpcUrl: string): Promise<San
             id: acc.address,
             name: acc.label,
             address: acc.address,
-            secretKeyHex: acc.secretKeyHex,
+            secretKeyHex: acc.secretKey,
             stablecoins: acc.stablecoins,
             usdcBalance,
           };
@@ -182,8 +185,10 @@ export function MoneyMQProvider({ children, client, branding }: MoneyMQProviderP
 
   useEffect(() => {
     async function initialize() {
+      console.log('[MoneyMQ] Initializing MoneyMQProvider...');
       // Fetch facilitator config (includes sandbox mode and RPC URL)
       const { isSandbox, rpcUrl } = await getFacilitatorConfig(client.config.endpoint);
+      console.log('[MoneyMQ] Setting RPC endpoint to:', rpcUrl);
       setRpcEndpoint(rpcUrl);
       setIsSandboxMode(isSandbox);
 

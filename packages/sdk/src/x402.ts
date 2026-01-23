@@ -43,7 +43,7 @@ interface SandboxAccountsResponse {
     payTo: string;
     userAccounts: Array<{
       address: string;
-      secretKeyHex?: string;
+      secretKey?: string;
       label?: string;
       stablecoins?: {
         usdc?: string;
@@ -128,11 +128,11 @@ export class X402API {
       }
       for (const account of networkData.userAccounts) {
         if (account.label === params.tag) {
-          if (!account.secretKeyHex) {
+          if (!account.secretKey) {
             throw new Error(`Account '${params.tag}' does not have a secret key (not locally managed)`);
           }
           // Create and return the signer directly
-          return createSigner('solana', account.secretKeyHex);
+          return createSigner('solana', account.secretKey);
         }
       }
     }
