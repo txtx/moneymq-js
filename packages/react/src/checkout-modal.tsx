@@ -9,9 +9,7 @@ import logoAnimation from './assets/logo-animation.json';
 import {
   EventStream,
   CheckoutReceipt,
-  isPaymentSettlementSucceeded,
   isTransactionCompleted,
-  type PaymentSettlementSucceededData,
   type TransactionCompletedData,
   type CloudEventEnvelope,
 } from '@moneymq/sdk';
@@ -241,66 +239,16 @@ async function createSandboxPayment(
   return confirmedIntent.id;
 }
 
-// Wait for payment settlement event via SSE stream
-function waitForSettlementEvent(
-  apiUrl: string,
-  paymentIntentId: string,
-  timeoutMs: number = 30000,
-): Promise<CloudEventEnvelope<PaymentSettlementSucceededData>> {
-  return new Promise((resolve, reject) => {
-    console.log('[MoneyMQ] Waiting for settlement event for intent:', paymentIntentId);
-
-    // Use replay to catch events that may have been emitted before we connected
-    const stream = new EventStream(apiUrl, { last: 5 });
-    let settled = false;
-
-    const cleanup = () => {
-      if (!settled) {
-        stream.disconnect();
-      }
-    };
-
-    const timeout = setTimeout(() => {
-      cleanup();
-      reject(new Error('Settlement event timeout'));
-    }, timeoutMs);
-
-    stream.on('payment', (event) => {
-      console.log('[MoneyMQ] Received payment event:', event.type, event.data);
-
-      if (isPaymentSettlementSucceeded(event)) {
-        // Accept any settlement event - the backend currently sends PaymentFlow::X402
-        // for all payments including checkout flows, so we can't match on intent_id.
-        // In sandbox mode, there's typically only one payment at a time.
-        // TODO: Update backend to emit PaymentFlow::Checkout with intent_id for checkout flows
-        console.log('[MoneyMQ] Settlement event received');
-        settled = true;
-        clearTimeout(timeout);
-        stream.disconnect();
-        resolve(event);
-      }
-    });
-
-    stream.on('error', (error) => {
-      console.error('[MoneyMQ] Stream error:', error);
-      // Don't reject on stream errors, just log - the timeout will handle failures
-    });
-
-    stream.connect();
-  });
-}
-
 // Wait for transaction:completed CloudEvent via SSE
 function waitForTransactionCompleted(
   apiUrl: string,
-  transactionId: string,
+  transactionId?: string,
   timeoutMs: number = 30000,
 ): Promise<CloudEventEnvelope<TransactionCompletedData>> {
   return new Promise((resolve, reject) => {
-    console.log('[MoneyMQ] Waiting for transaction:completed event for tx:', transactionId);
+    console.log('[MoneyMQ] Waiting for transaction:completed event', transactionId ? `for tx: ${transactionId}` : '(any)');
 
     // Use replay to catch the event that was just emitted
-    // We filter by transaction_id to ensure we get the right one
     const stream = new EventStream(apiUrl, { last: 5 });
     let resolved = false;
 
@@ -319,9 +267,9 @@ function waitForTransactionCompleted(
       console.log('[MoneyMQ] Received event while waiting for transaction:completed:', event.type);
 
       if (isTransactionCompleted(event)) {
-        // Match the transaction_id to ensure this is for the current payment
-        if (event.data.transaction_id === transactionId) {
-          console.log('[MoneyMQ] Transaction completed event received for tx:', transactionId);
+        // If transactionId provided, match specifically; otherwise accept any
+        if (!transactionId || event.data.transaction_id === transactionId) {
+          console.log('[MoneyMQ] Transaction completed event received for tx:', event.data.transaction_id);
           resolved = true;
           clearTimeout(timeout);
           stream.disconnect();
@@ -769,21 +717,9 @@ export function CheckoutModal({
           lineItems,
         );
 
-        // Step 2: Wait for settlement event via stream to get transaction_id
-        console.log('[MoneyMQ] Payment confirmed, waiting for settlement event...');
-        const settlementEvent = await waitForSettlementEvent(apiUrl, paymentIntentId);
-
-        // Step 3: Wait for transaction:completed which contains the receipt JWT
-        const transactionId = settlementEvent.data?.transaction_id;
-        if (!transactionId) {
-          throw new Error('No transaction ID received from settlement event');
-        }
-
-        console.log(
-          '[MoneyMQ] Waiting for transaction:completed CloudEvent for tx:',
-          transactionId,
-        );
-        const completedEvent = await waitForTransactionCompleted(apiUrl, transactionId, 30000);
+        // Step 2: Wait for transaction:completed which contains the receipt JWT
+        console.log('[MoneyMQ] Payment confirmed, waiting for transaction:completed event...');
+        const completedEvent = await waitForTransactionCompleted(apiUrl, undefined, 30000);
 
         const receiptToken = completedEvent.data.receipt;
         console.log('[MoneyMQ] Receipt received, creating CheckoutReceipt');
@@ -816,18 +752,9 @@ export function CheckoutModal({
       });
       window.dispatchEvent(customEvent);
 
-      // Wait for settlement event via SSE (payment goes through x402 middleware)
-      console.log('[MoneyMQ] Browser extension payment initiated, waiting for settlement event...');
-      const settlementEvent = await waitForSettlementEvent(apiUrl, 'browser_extension');
-
       // Wait for transaction:completed which contains the receipt JWT
-      const transactionId = settlementEvent.data?.transaction_id;
-      if (!transactionId) {
-        throw new Error('No transaction ID received from settlement event');
-      }
-
-      console.log('[MoneyMQ] Waiting for transaction:completed CloudEvent for tx:', transactionId);
-      const completedEvent = await waitForTransactionCompleted(apiUrl, transactionId, 30000);
+      console.log('[MoneyMQ] Browser extension payment initiated, waiting for transaction:completed event...');
+      const completedEvent = await waitForTransactionCompleted(apiUrl, undefined, 30000);
 
       const receiptToken = completedEvent.data.receipt;
       console.log('[MoneyMQ] Receipt received, creating CheckoutReceipt');
