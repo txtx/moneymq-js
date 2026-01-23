@@ -80,15 +80,17 @@ async function makeRequestWith402Handling(
     body: requestBody,
   });
 
-  let data = await parseJsonResponse(response) as Record<string, unknown>;
+  let data = (await parseJsonResponse(response)) as Record<string, unknown>;
   console.log(`[MoneyMQ] Response status: ${response.status}`, data);
 
   // Handle 402 Payment Required
   if (response.status === 402) {
     // Use x402 standard format (accepts), with fallback for legacy formats
     const errorData = data?.error as Record<string, unknown> | undefined;
-    const paymentRequirements =
-      (data?.accepts || data?.payment_requirements || errorData?.payment_requirements || []) as unknown[];
+    const paymentRequirements = (data?.accepts ||
+      data?.payment_requirements ||
+      errorData?.payment_requirements ||
+      []) as unknown[];
 
     if (paymentRequirements.length === 0) {
       console.warn('[MoneyMQ] ⚠️  No payment requirements found in 402 response');
@@ -116,6 +118,10 @@ async function makeRequestWith402Handling(
       'exact',
     );
 
+    console.log(
+      '[MoneyMQ] Creating payment header with selected payment requirement:',
+      selectedPaymentRequirement,
+    );
     // Create payment header
     const paymentHeaderValue = await createPaymentHeader(
       signer,
@@ -139,7 +145,7 @@ async function makeRequestWith402Handling(
       body: requestBody,
     });
 
-    data = await parseJsonResponse(response) as Record<string, unknown>;
+    data = (await parseJsonResponse(response)) as Record<string, unknown>;
     console.log(`[MoneyMQ] Retry response status: ${response.status}`, data);
 
     if (!response.ok) {
@@ -321,7 +327,10 @@ function waitForTransactionCompleted(
           stream.disconnect();
           resolve(event);
         } else {
-          console.log('[MoneyMQ] Transaction completed event for different tx:', event.data.transaction_id);
+          console.log(
+            '[MoneyMQ] Transaction completed event for different tx:',
+            event.data.transaction_id,
+          );
         }
       }
     });
@@ -517,16 +526,14 @@ export function CheckoutModal({
     null,
   );
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const {
-    wallets,
-    select,
-    disconnect,
-    connected,
-    selectedWallet,
-  } = useConnector();
+  const { wallets, select, disconnect, connected, selectedWallet } = useConnector();
   const { address: publicKeyString } = useAccount();
-  const publicKey = publicKeyString ? { toBase58: () => publicKeyString, toString: () => publicKeyString } : null;
-  const connectedWallet = selectedWallet ? wallets.find(w => w.wallet.name === selectedWallet.name) || null : null;
+  const publicKey = publicKeyString
+    ? { toBase58: () => publicKeyString, toString: () => publicKeyString }
+    : null;
+  const connectedWallet = selectedWallet
+    ? wallets.find((w) => w.wallet.name === selectedWallet.name) || null
+    : null;
   const { isSandboxMode, sandboxAccounts } = useSandbox();
   const client = useMoneyMQ();
 
@@ -616,8 +623,10 @@ export function CheckoutModal({
   const displayedSandboxAccounts = sandboxAccounts.slice(0, 3);
 
   // Get the current wallet icon (connected wallet, selected wallet, or default)
-  const currentWalletIcon = connectedWallet?.wallet.icon || selectedWallet?.icon || pendingWallet?.wallet.icon;
-  const currentWalletName = connectedWallet?.wallet.name || selectedWallet?.name || pendingWallet?.wallet.name;
+  const currentWalletIcon =
+    connectedWallet?.wallet.icon || selectedWallet?.icon || pendingWallet?.wallet.icon;
+  const currentWalletName =
+    connectedWallet?.wallet.name || selectedWallet?.name || pendingWallet?.wallet.name;
 
   // Get current selection display info
   const getCurrentSelectionDisplay = () => {
@@ -664,9 +673,7 @@ export function CheckoutModal({
           try {
             const configResponse = await fetch(`${apiUrl}/payment/v1/config?attrs=studio`);
             const config = await configResponse.json();
-            const rpcUrl = normalizeRpcUrl(
-              config.studio?.rpcUrl || 'http://localhost:8899',
-            );
+            const rpcUrl = normalizeRpcUrl(config.studio?.rpcUrl || 'http://localhost:8899');
 
             // Fetch USDC token account balance
             const response = await fetch(rpcUrl, {
@@ -712,6 +719,12 @@ export function CheckoutModal({
   }, [debug, currentSelection, selectedPaymentMethod, publicKey, client.config.endpoint]);
 
   const handlePay = useCallback(async () => {
+    console.log('[MoneyMQ] Initiating payment...', {
+      amount,
+      currency,
+      recipient,
+      selectedPaymentMethod,
+    });
     if (!recipient) return;
 
     // Determine the sender based on payment method
@@ -766,17 +779,25 @@ export function CheckoutModal({
           throw new Error('No transaction ID received from settlement event');
         }
 
-        console.log('[MoneyMQ] Waiting for transaction:completed CloudEvent for tx:', transactionId);
+        console.log(
+          '[MoneyMQ] Waiting for transaction:completed CloudEvent for tx:',
+          transactionId,
+        );
         const completedEvent = await waitForTransactionCompleted(apiUrl, transactionId, 30000);
 
         const receiptToken = completedEvent.data.receipt;
         console.log('[MoneyMQ] Receipt received, creating CheckoutReceipt');
+        console.log('[MoneyMQ] Receipt token:', receiptToken);
         const receipt = new CheckoutReceipt(receiptToken);
 
         setIsSending(false);
         onSuccess?.(receipt);
         onClose();
         return;
+      } else {
+        console.log(
+          '[MoneyMQ] Not sandbox account with secret key, proceeding with browser extension flow',
+        );
       }
 
       // For browser extension wallets, dispatch event for external handling
@@ -810,7 +831,9 @@ export function CheckoutModal({
 
       const receiptToken = completedEvent.data.receipt;
       console.log('[MoneyMQ] Receipt received, creating CheckoutReceipt');
+      console.log('[MoneyMQ] Receipt token:', receiptToken);
       const receipt = new CheckoutReceipt(receiptToken);
+      console.log('[MoneyMQ] Receipt details:', receipt);
 
       setIsSending(false);
       onSuccess?.(receipt);
@@ -1318,8 +1341,12 @@ export function CheckoutModal({
                               textAlign: 'left',
                               transition: 'background-color 150ms',
                             }}
-                            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#3a3a3c')}
-                            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                            onMouseEnter={(e) =>
+                              (e.currentTarget.style.backgroundColor = '#3a3a3c')
+                            }
+                            onMouseLeave={(e) =>
+                              (e.currentTarget.style.backgroundColor = 'transparent')
+                            }
                           >
                             <div
                               style={{
@@ -1379,7 +1406,11 @@ export function CheckoutModal({
                         {/* Divider between sandbox and browser extensions */}
                         {availableWallets.length > 0 && (
                           <div
-                            style={{ height: '1px', backgroundColor: '#48484a', margin: '0.25rem 0' }}
+                            style={{
+                              height: '1px',
+                              backgroundColor: '#48484a',
+                              margin: '0.25rem 0',
+                            }}
                           />
                         )}
                       </>
@@ -1408,7 +1439,9 @@ export function CheckoutModal({
                             transition: 'background-color 150ms',
                           }}
                           onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#3a3a3c')}
-                          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                          onMouseLeave={(e) =>
+                            (e.currentTarget.style.backgroundColor = 'transparent')
+                          }
                         >
                           <div
                             style={{
@@ -1782,6 +1815,6 @@ export function CheckoutModal({
         </div>
       </div>
     </>,
-    document.body
+    document.body,
   );
 }
